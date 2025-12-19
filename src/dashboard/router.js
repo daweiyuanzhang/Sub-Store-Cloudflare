@@ -1,4 +1,5 @@
 import { signToken, authenticateRequest } from './auth.js';
+import { hashPassword, verifyPassword } from './password.js';
 import { getUser, getUserByPath, getUserById, createUser, updateUserData, updateUsername, updatePath, listUsers, deleteUser, updatePassword, updateNotes, generatePath } from './user.js';
 import { createCaptcha, verifyCaptcha } from './captcha.js';
 import { getSystemSettings, updateSystemSettings, getSetting } from './settings.js';
@@ -103,14 +104,16 @@ export async function handleDashboardRequest(request, env) {
 
             // First time init: if no users, create admin
             if (!user && username === 'admin') {
-                const allUsers = await listUsers(db);
-                if (allUsers.results.length === 0) {
-                    await createUser(db, 'admin', 'admin', 'admin');
+                // 使用 COUNT 查询代替 listUsers，避免 D1 读取行数限制
+                const countResult = await db.prepare('SELECT COUNT(*) as count FROM users').first();
+                if (countResult.count === 0) {
+                    const hashedPassword = await hashPassword('admin');
+                    await createUser(db, 'admin', hashedPassword, 'admin');
                     user = await getUser(db, 'admin');
                 }
             }
 
-            if (!user || user.password_hash !== password) {
+            if (!user || !(await verifyPassword(password, user.password_hash))) {
                 return errorResponse('用户名或密码错误', 401);
             }
 
@@ -149,7 +152,8 @@ export async function handleDashboardRequest(request, env) {
         // POST /api/dashboard/user/password
         if (path === '/api/dashboard/user/password' && method === 'POST') {
             const { newPassword } = await request.json();
-            await updatePassword(db, authPayload.id, newPassword);
+            const hashedPassword = await hashPassword(newPassword);
+            await updatePassword(db, authPayload.id, hashedPassword);
             return okResponse();
         }
 
@@ -223,7 +227,8 @@ export async function handleDashboardRequest(request, env) {
                 if (await getUser(db, username)) {
                     return errorResponse('User exists');
                 }
-                await createUser(db, username, password, role || 'user');
+                const hashedPassword = await hashPassword(password);
+                await createUser(db, username, hashedPassword, role || 'user');
                 const newUser = await getUser(db, username);
                 return jsonResponse({ status: 'created', path: newUser.path });
             }
@@ -272,7 +277,8 @@ export async function handleDashboardRequest(request, env) {
                 // POST /api/dashboard/admin/user/:id/password
                 if (action === 'password' && method === 'POST') {
                     const { newPassword } = await request.json();
-                    await updatePassword(db, userId, newPassword);
+                    const hashedPassword = await hashPassword(newPassword);
+                    await updatePassword(db, userId, hashedPassword);
                     return okResponse();
                 }
 
