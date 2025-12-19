@@ -135,7 +135,7 @@ function subStoreTransformPlugin() {
             // 修改 isNode 检测，让它返回 false (模拟 Surge 环境)
             // Cloudflare Workers 禁止 eval()，Node 模式会触发很多 eval 调用
             contents = contents.replace(
-                /const\s+isNode\s*=\s*eval\s*\(\s*['"`]typeof\s+process\s*!==\s*['"]undefined['"]['"`]\s*\)/g,
+                /const\s+isNode\s*=\s*eval\s*\(\s*`typeof\s+process\s*!==\s*"undefined"`\s*\)/g,
                 'const isNode = false'
             );
 
@@ -148,12 +148,14 @@ function subStoreTransformPlugin() {
             // ============ express.js 修改 ============
 
             // 暴露 dispatch 到全局，供 Workers 重复调用
+            // 注意：不在 start() 中调用 dispatch()，因为这会在模块导入期间触发
+            // Workers 禁止在模块导入期间执行 fetch/setTimeout 等异步操作
             if (id.includes('vendor/express.js')) {
                 contents = contents.replace(
                     /app\.start\s*=\s*\(\)\s*=>\s*\{\s*dispatch\s*\(\s*\$request\s*\)\s*;\s*\}/g,
                     `app.start = () => {
                         globalThis.__substore_dispatch__ = dispatch;
-                        dispatch($request);
+                        // dispatch 将在模块完全加载后由 substore-loader.js 调用
                     }`
                 );
             }

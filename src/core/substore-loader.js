@@ -35,6 +35,14 @@ export async function initSubStore($request) {
 
     initialized = true;
     debug('[SubStore] 首次初始化完成');
+
+    // 在模块完全加载后调用 dispatch 处理首次请求
+    // 这避免了在模块导入期间执行 async I/O（Workers 禁止此操作）
+    if (globalThis.__substore_dispatch__) {
+        globalThis.__substore_dispatch__($request);
+    } else {
+        error('[SubStore] dispatch 函数未找到！');
+    }
 }
 
 /**
