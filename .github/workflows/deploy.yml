@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - multi-tenant
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - 'docs/**'
+      - '*.md'
   schedule:
     # 每 3 天检查一次更新并部署
     - cron: '0 0 */3 * *'
