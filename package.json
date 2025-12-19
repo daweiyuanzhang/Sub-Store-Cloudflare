@@ -8,7 +8,7 @@
         "build": "vite build",
         "preview": "vite preview --host 0.0.0.0 --port 3000",
         "deploy:local": "npx wrangler deploy",
-        "deploy:action": "npx wrangler deploy 2>&1 | grep -v 'workers.dev' | grep -v 'https://' || true",
+        "deploy:action": "set -o pipefail && npx wrangler deploy 2>&1 | sed -e '/workers.dev/d' -e '/https:\\/\\//d'",
         "tail": "npx wrangler tail --format=pretty",
         "db:create": "npx wrangler d1 create sub-store-db",
         "db:init": "npx wrangler d1 execute sub-store-db --remote --file=./schema.sql",
