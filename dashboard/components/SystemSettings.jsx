@@ -108,22 +108,94 @@ const SystemSettings = () => {
                             </p>
                         </div>
 
-                        {/* Token Expiry */}
-                        <div>
-                            <label className="block text-white text-sm font-medium mb-2">
-                                登录有效期（小时）
-                            </label>
-                            <input
-                                type="number"
-                                min="1"
-                                max="8760"
-                                value={settings.tokenExpiryHours || 168}
-                                onChange={e => updateSetting('tokenExpiryHours', parseInt(e.target.value) || 168)}
-                                className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                            />
-                            <p className="text-gray-500 text-xs mt-2">
-                                用户登录后 Token 的有效时长，默认 168 小时（7 天），最大 8760 小时（1 年）
-                            </p>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            {/* Token Expiry */}
+                            <div>
+                                <label className="block text-white text-sm font-medium mb-2">
+                                    登录有效期（小时）
+                                </label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="8760"
+                                    value={settings.tokenExpiryHours || 168}
+                                    onChange={e => updateSetting('tokenExpiryHours', parseInt(e.target.value) || 168)}
+                                    className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                                />
+                                <p className="text-gray-500 text-xs mt-2">
+                                    用户登录后 Token 的有效时长，默认 168 小时（7 天）
+                                </p>
+                            </div>
+
+                            {/* Password Min Length */}
+                            <div>
+                                <label className="block text-white text-sm font-medium mb-2">
+                                    密码最小长度
+                                </label>
+                                <input
+                                    type="number"
+                                    min="4"
+                                    max="64"
+                                    value={settings.passwordMinLength ?? 8}
+                                    onChange={e => updateSetting('passwordMinLength', parseInt(e.target.value, 10) || 8)}
+                                    className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                                />
+                                <p className="text-gray-500 text-xs mt-2">
+                                    用户密码长度下限
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Cron Batch Settings */}
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <label className="block text-white text-sm font-medium mb-2">
+                                    定时任务批处理数量
+                                </label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="1000"
+                                    value={settings.cronBatchSize ?? 50}
+                                    onChange={e => updateSetting('cronBatchSize', parseInt(e.target.value, 10) || 50)}
+                                    className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                                />
+                                <p className="text-gray-500 text-xs mt-2">
+                                    每批处理的用户数，数值越大越耗时
+                                </p>
+                            </div>
+                            <div>
+                                <label className="block text-white text-sm font-medium mb-2">
+                                    定时任务最大用户数
+                                </label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    max="100000"
+                                    value={settings.cronMaxUsers ?? 200}
+                                    onChange={e => updateSetting('cronMaxUsers', Math.max(0, parseInt(e.target.value, 10) || 0))}
+                                    className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                                />
+                                <p className="text-gray-500 text-xs mt-2">
+                                    单次最多处理用户数，0 表示不限制
+                                </p>
+                            </div>
+                            <div>
+                                <label className="block text-white text-sm font-medium mb-2">
+                                    定时任务时间预算（毫秒）
+                                </label>
+                                <input
+                                    type="number"
+                                    min="1000"
+                                    max="60000"
+                                    value={settings.cronTimeBudgetMs ?? 20000}
+                                    onChange={e => updateSetting('cronTimeBudgetMs', parseInt(e.target.value, 10) || 20000)}
+                                    className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                                />
+                                <p className="text-gray-500 text-xs mt-2">
+                                    单次定时任务的最大执行时间
+                                </p>
+                            </div>
                         </div>
 
                         {/* Show User Path */}

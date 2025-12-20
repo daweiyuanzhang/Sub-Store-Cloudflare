@@ -9,7 +9,7 @@ import {
     getUser, getUserById, getUserByPath, listUsers, createUser, deleteUser,
     updateUserData, updatePassword, updateUsername, updatePath, updateNotes, generatePath
 } from '../user.js';
-import { getSystemSettings, updateSystemSettings } from '../settings.js';
+import { getSystemSettings, updateSystemSettings, getSetting } from '../settings.js';
 
 /**
  * 解析 /api/dashboard/admin/user/:id/:action? 路由
@@ -64,11 +64,22 @@ export async function handleAdminRoutes(request, env, authPayload) {
     // POST /api/dashboard/admin/user/create
     if (path === '/api/dashboard/admin/user/create' && method === 'POST') {
         const { username, password, role } = await request.json();
+        const passwordMinLength = parseInt(await getSetting(db, 'passwordMinLength') ?? 8, 10) || 8;
+        if (!username || !password) {
+            return errorResponse('用户名和密码不能为空', 400);
+        }
+        if (username.length < 3) {
+            return errorResponse('用户名长度过短', 400);
+        }
+        if (password.length < passwordMinLength) {
+            return errorResponse(`密码长度至少为${passwordMinLength}位`, 400);
+        }
         if (await getUser(db, username)) {
-            return errorResponse('User exists');
+            return errorResponse('用户已存在');
         }
         const hashedPassword = await hashPassword(password);
-        await createUser(db, username, hashedPassword, role || 'user');
+        const nextRole = role === 'admin' ? 'admin' : 'user';
+        await createUser(db, username, hashedPassword, nextRole);
         const newUser = await getUser(db, username);
         return jsonResponse({ status: 'created', path: newUser.path });
     }
@@ -117,6 +128,10 @@ export async function handleAdminRoutes(request, env, authPayload) {
         // POST /api/dashboard/admin/user/:id/password
         if (action === 'password' && method === 'POST') {
             const { newPassword } = await request.json();
+            const passwordMinLength = parseInt(await getSetting(db, 'passwordMinLength') ?? 8, 10) || 8;
+            if (!newPassword || newPassword.length < passwordMinLength) {
+                return errorResponse(`密码长度至少为${passwordMinLength}位`, 400);
+            }
             const hashedPassword = await hashPassword(newPassword);
             await updatePassword(db, userId, hashedPassword);
             return okResponse();
@@ -125,9 +140,12 @@ export async function handleAdminRoutes(request, env, authPayload) {
         // POST /api/dashboard/admin/user/:id/username
         if (action === 'username' && method === 'POST') {
             const { newUsername } = await request.json();
+            if (!newUsername || newUsername.length < 3) {
+                return errorResponse('用户名长度过短', 400);
+            }
             const existing = await getUser(db, newUsername);
             if (existing) {
-                return errorResponse('Username already exists');
+                return errorResponse('用户名已存在');
             }
             await updateUsername(db, userId, newUsername);
             return okResponse();
@@ -138,7 +156,7 @@ export async function handleAdminRoutes(request, env, authPayload) {
             const { newPath } = await request.json();
             const existing = await getUserByPath(db, newPath);
             if (existing) {
-                return errorResponse('Path already exists');
+            return errorResponse('路径已存在');
             }
             await updatePath(db, userId, newPath);
             return okResponse();

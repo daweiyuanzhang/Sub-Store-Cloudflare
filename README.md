@@ -90,6 +90,7 @@
 | `CF_API_TOKEN` | Cloudflare API Token | `xxxxxxxxx` |
 | `CF_ACCOUNT_ID` | Cloudflare Account ID | `xxxxxxxxx` |
 | `D1_DATABASE_ID` | D1 数据库 ID | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| `JWT_SECRET` | JWT 签名密钥（必填，建议 32 位以上随机字符串） | `your-long-random-secret` |
 | `DEPLOY_SUB_STORE_FRONTEND` | 是否部署 Sub-Store 前端 (可选，任意值为部署，不设置该变量则不部署前端) | `true` |
 
 ### 第七步：触发部署

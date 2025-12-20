@@ -7,6 +7,7 @@
  */
 import { jsonResponse, errorResponse, okResponse } from '../utils/response.js';
 import { hashPassword } from '../password.js';
+import { getSetting } from '../settings.js';
 import { getUserById, getUser, updateUserData, updatePassword, updateUsername, updatePath, generatePath } from '../user.js';
 
 /**
@@ -50,6 +51,10 @@ export async function handleUserRoutes(request, env, authPayload) {
     // POST /api/dashboard/user/password
     if (path === '/api/dashboard/user/password' && method === 'POST') {
         const { newPassword } = await request.json();
+        const passwordMinLength = parseInt(await getSetting(db, 'passwordMinLength') ?? 8, 10) || 8;
+        if (!newPassword || newPassword.length < passwordMinLength) {
+            return errorResponse(`密码长度至少为${passwordMinLength}位`, 400);
+        }
         const hashedPassword = await hashPassword(newPassword);
         await updatePassword(db, authPayload.id, hashedPassword);
         return okResponse();
@@ -58,6 +63,9 @@ export async function handleUserRoutes(request, env, authPayload) {
     // POST /api/dashboard/user/username
     if (path === '/api/dashboard/user/username' && method === 'POST') {
         const { newUsername } = await request.json();
+        if (!newUsername || newUsername.length < 3) {
+            return errorResponse('用户名长度过短', 400);
+        }
         const existing = await getUser(db, newUsername);
         if (existing) {
             return errorResponse('用户名已存在');

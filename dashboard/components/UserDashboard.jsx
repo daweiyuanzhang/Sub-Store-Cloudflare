@@ -20,6 +20,7 @@ const UserDashboard = () => {
     const [currentUsername, setCurrentUsername] = useState('');
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [avatarUrl, setAvatarUrl] = useState('');
+    const [passwordMinLength, setPasswordMinLength] = useState(8);
 
     // 获取有效路径（模拟用户时使用模拟用户的路径）
     const effectivePath = impersonatedUser ? impersonatedUser.path : userPath;
@@ -33,6 +34,19 @@ const UserDashboard = () => {
                 setAvatarUrl(d?.avatarUrl || '');
             });
     }, [token]);
+
+    useEffect(() => {
+        fetch('/api/dashboard/settings/public')
+            .then(res => res.json())
+            .then(s => {
+                if (typeof s?.passwordMinLength === 'number') {
+                    setPasswordMinLength(s.passwordMinLength);
+                }
+            })
+            .catch(() => {
+                setPasswordMinLength(8);
+            });
+    }, []);
 
     const copyToClipboard = (text) => {
         navigator.clipboard.writeText(text);
@@ -243,6 +257,7 @@ const UserDashboard = () => {
                 <ChangePasswordModal
                     token={token}
                     isAdmin={false}
+                    minLength={passwordMinLength}
                     onClose={handlePwdModalClose}
                 />
             )}

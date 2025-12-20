@@ -55,7 +55,8 @@ export async function handlePublicRoutes(request, env) {
         const turnstileSiteKey = captchaType === 'turnstile'
             ? await getSetting(db, 'turnstileSiteKey')
             : '';
-        return jsonResponse({ frontendUrl, captchaType, turnstileSiteKey });
+        const passwordMinLength = await getSetting(db, 'passwordMinLength');
+        return jsonResponse({ frontendUrl, captchaType, turnstileSiteKey, passwordMinLength });
     }
 
     // POST /api/dashboard/auth/login
@@ -64,12 +65,15 @@ export async function handlePublicRoutes(request, env) {
         const { username, password, captchaId, captchaCode, turnstileToken } = body;
 
         // 根据配置选择验证方式
-        const captchaType = await getSetting(db, 'captchaType') || 'builtin';
+        let captchaType = await getSetting(db, 'captchaType') || 'builtin';
 
         if (captchaType === 'turnstile') {
             // Turnstile 验证
             const secretKey = await getSetting(db, 'turnstileSecretKey');
-            if (!secretKey || !turnstileToken) {
+            if (!secretKey) {
+                return errorResponse('人机验证未配置');
+            }
+            if (!turnstileToken) {
                 return errorResponse('验证失败');
             }
             const ip = request.headers.get('CF-Connecting-IP') || '';
@@ -101,6 +105,9 @@ export async function handlePublicRoutes(request, env) {
             return errorResponse('用户名或密码错误', 401);
         }
 
+        const mustChangePassword = user.username === 'admin'
+            && await verifyPassword('admin', user.password_hash);
+
         // 获取可配置的 Token 过期时间
         const expiryHours = await getTokenExpiryHours(db);
         const token = await signToken({
@@ -108,9 +115,15 @@ export async function handlePublicRoutes(request, env) {
             username: user.username,
             role: user.role,
             tokenVersion: user.token_version || 0
-        }, expiryHours);
+        }, expiryHours, env);
         const frontendUrl = await getSetting(db, 'frontendUrl');
-        return jsonResponse({ token, role: user.role, path: user.path, frontendUrl });
+        return jsonResponse({
+            token,
+            role: user.role,
+            path: user.path,
+            frontendUrl,
+            mustChangePassword,
+        });
     }
 
     return null;

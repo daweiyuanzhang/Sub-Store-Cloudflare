@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from './Toast';
 
 const Login = () => {
     const { login } = useAuth();
+    const toast = useToast();
 
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -16,6 +18,7 @@ const Login = () => {
     // Turnstile 相关
     const [captchaType, setCaptchaType] = useState('builtin');
     const [turnstileSiteKey, setTurnstileSiteKey] = useState('');
+    const [turnstileConfigured, setTurnstileConfigured] = useState(false);
     const [turnstileToken, setTurnstileToken] = useState('');
     const turnstileRef = useRef(null);
 
@@ -24,8 +27,13 @@ const Login = () => {
         try {
             const res = await fetch('/api/dashboard/settings/public');
             const data = await res.json();
-            setCaptchaType(data.captchaType || 'builtin');
-            setTurnstileSiteKey(data.turnstileSiteKey || '');
+            const nextCaptchaType = data.captchaType || 'builtin';
+            const siteKey = data.turnstileSiteKey || '';
+            const isTurnstileConfigured = nextCaptchaType === 'turnstile' && siteKey;
+
+            setCaptchaType(nextCaptchaType);
+            setTurnstileSiteKey(siteKey);
+            setTurnstileConfigured(isTurnstileConfigured);
         } catch (e) {
             console.error('加载设置失败');
         }
@@ -55,15 +63,17 @@ const Login = () => {
 
         // 验证
         if (captchaType === 'turnstile') {
+            if (!turnstileConfigured) {
+                setError('人机验证未配置，请联系管理员');
+                return;
+            }
             if (!turnstileToken) {
                 setError('请完成人机验证');
                 return;
             }
-        } else {
-            if (!captchaCode) {
-                setError('请输入验证码');
-                return;
-            }
+        } else if (!captchaCode) {
+            setError('请输入验证码');
+            return;
         }
 
         setLoading(true);
@@ -75,14 +85,17 @@ const Login = () => {
                 body: JSON.stringify({
                     username,
                     password,
-                    captchaId,
-                    captchaCode,
-                    turnstileToken
+                    ...(captchaType === 'builtin'
+                        ? { captchaId, captchaCode }
+                        : { turnstileToken })
                 })
             });
             const data = await res.json();
             if (res.ok) {
-                login(data.token, data.role, data.path, data.frontendUrl);
+                if (data.mustChangePassword) {
+                    toast.warning('检测到默认管理员密码，请尽快修改密码。');
+                }
+                login(data.token, data.role, data.path, data.frontendUrl, data.mustChangePassword);
             } else {
                 setError(data.error || '登录失败');
                 if (captchaType === 'builtin') {
@@ -155,37 +168,45 @@ const Login = () => {
                     </div>
 
                     {/* 验证码区域 */}
-                    {captchaType === 'turnstile' && turnstileSiteKey ? (
+                    {captchaType === 'turnstile' ? (
                         <div>
                             <label className="block text-sm font-medium text-gray-300 mb-2">人机验证</label>
-                            <div className="flex justify-center p-4 bg-white/5 border border-white/10 rounded-xl">
-                                <Turnstile
-                                    ref={turnstileRef}
-                                    siteKey={turnstileSiteKey}
-                                    onSuccess={setTurnstileToken}
-                                    onError={() => setTurnstileToken('')}
-                                    onExpire={() => setTurnstileToken('')}
-                                    options={{
-                                        theme: 'dark',
-                                        size: 'flexible',
-                                    }}
-                                />
-                            </div>
-                            {turnstileToken ? (
-                                <p className="text-green-400 text-xs mt-2 text-center flex items-center justify-center gap-1">
-                                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                    </svg>
-                                    验证通过
-                                </p>
+                            {turnstileConfigured ? (
+                                <>
+                                    <div className="flex justify-center p-4 bg-white/5 border border-white/10 rounded-xl">
+                                        <Turnstile
+                                            ref={turnstileRef}
+                                            siteKey={turnstileSiteKey}
+                                            onSuccess={setTurnstileToken}
+                                            onError={() => setTurnstileToken('')}
+                                            onExpire={() => setTurnstileToken('')}
+                                            options={{
+                                                theme: 'dark',
+                                                size: 'flexible',
+                                            }}
+                                        />
+                                    </div>
+                                    {turnstileToken ? (
+                                        <p className="text-green-400 text-xs mt-2 text-center flex items-center justify-center gap-1">
+                                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                            </svg>
+                                            验证通过
+                                        </p>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => turnstileRef.current?.reset()}
+                                            className="w-full mt-2 text-gray-400 hover:text-white text-xs text-center transition-colors"
+                                        >
+                                            点击重新验证
+                                        </button>
+                                    )}
+                                </>
                             ) : (
-                                <button
-                                    type="button"
-                                    onClick={() => turnstileRef.current?.reset()}
-                                    className="w-full mt-2 text-gray-400 hover:text-white text-xs text-center transition-colors"
-                                >
-                                    点击重新验证
-                                </button>
+                                <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3">
+                                    人机验证未配置，请联系管理员。
+                                </div>
                             )}
                         </div>
                     ) : (

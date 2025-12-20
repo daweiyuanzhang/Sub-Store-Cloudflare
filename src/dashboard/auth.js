@@ -2,7 +2,15 @@ import { SignJWT, jwtVerify } from 'jose';
 import { getUserById } from './user.js';
 import { getSetting } from './settings.js';
 
-const SECRET_KEY = new TextEncoder().encode(process.env.JWT_SECRET || 'default-secret-key-change-me');
+function getSecretKey(env) {
+    const envSecret = env?.JWT_SECRET;
+    const processSecret = typeof process !== 'undefined' ? process.env?.JWT_SECRET : undefined;
+    const secret = envSecret || processSecret;
+    if (!secret) {
+        throw new Error('JWT_SECRET 未配置');
+    }
+    return new TextEncoder().encode(secret);
+}
 
 // 默认 Token 有效期（小时）
 const DEFAULT_TOKEN_EXPIRY_HOURS = 168; // 7 天
@@ -13,12 +21,13 @@ const DEFAULT_TOKEN_EXPIRY_HOURS = 168; // 7 天
  * @param {number} expiryHours - 过期时间（小时）
  * @returns {Promise<string>} token
  */
-export async function signToken(payload, expiryHours = DEFAULT_TOKEN_EXPIRY_HOURS) {
+export async function signToken(payload, expiryHours = DEFAULT_TOKEN_EXPIRY_HOURS, env) {
+    const secretKey = getSecretKey(env);
     return await new SignJWT(payload)
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
         .setExpirationTime(`${expiryHours}h`)
-        .sign(SECRET_KEY);
+        .sign(secretKey);
 }
 
 /**
@@ -26,9 +35,10 @@ export async function signToken(payload, expiryHours = DEFAULT_TOKEN_EXPIRY_HOUR
  * @param {string} token 
  * @returns {Promise<object|null>} payload
  */
-export async function verifyToken(token) {
+export async function verifyToken(token, env) {
     try {
-        const { payload } = await jwtVerify(token, SECRET_KEY);
+        const secretKey = getSecretKey(env);
+        const { payload } = await jwtVerify(token, secretKey);
         return payload;
     } catch (err) {
         return null;
@@ -41,13 +51,13 @@ export async function verifyToken(token) {
  * @param {D1Database} db - 数据库实例，用于验证 tokenVersion
  * @returns {Promise<object|null>} user payload
  */
-export async function authenticateRequest(request, db) {
+export async function authenticateRequest(request, db, env) {
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return null;
     }
     const token = authHeader.split(' ')[1];
-    const payload = await verifyToken(token);
+    const payload = await verifyToken(token, env);
 
     if (!payload) {
         return null;

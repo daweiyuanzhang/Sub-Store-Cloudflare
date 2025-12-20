@@ -14,6 +14,10 @@ binding = "DB"
 database_name = "sub-store-db"
 database_id = "__D1_DATABASE_ID__"
 
+# 环境变量
+[vars]
+JWT_SECRET = "__JWT_SECRET__"
+
 # Cron 触发器 - 每 6 小时执行一次
 [triggers]
 crons = ["0 */6 * * *"]

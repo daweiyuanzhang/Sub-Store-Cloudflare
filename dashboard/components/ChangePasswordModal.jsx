@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const ChangePasswordModal = ({ userId, token, isAdmin, onClose }) => {
+const ChangePasswordModal = ({ userId, token, isAdmin, minLength = 8, onClose }) => {
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -11,8 +11,8 @@ const ChangePasswordModal = ({ userId, token, isAdmin, onClose }) => {
             setError('两次输入的密码不一致');
             return;
         }
-        if (newPassword.length < 4) {
-            setError('密码长度至少为4位');
+        if (newPassword.length < minLength) {
+            setError(`密码长度至少为${minLength}位`);
             return;
         }
 

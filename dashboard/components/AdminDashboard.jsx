@@ -9,7 +9,7 @@ import ChangeUsernameModal from './ChangeUsernameModal';
 import Footer from './Footer';
 
 const AdminDashboard = () => {
-    const { token, frontendUrl, logout } = useAuth();
+    const { token, frontendUrl, logout, mustChangePassword, setMustChangePassword } = useAuth();
     const { switchToOwnPanel, impersonate } = useImpersonate();
     const toast = useToast();
 
@@ -26,11 +26,22 @@ const AdminDashboard = () => {
     const [currentUsername, setCurrentUsername] = useState('');
     const [createExpanded, setCreateExpanded] = useState(false);
     const [showUserPath, setShowUserPath] = useState(true);
+    const [passwordMinLength, setPasswordMinLength] = useState(8);
     const [deletingUser, setDeletingUser] = useState(null); // { id, username }
 
     const refresh = () => fetch('/api/dashboard/admin/users', { headers: { 'Authorization': `Bearer ${token}` } })
-        .then(res => res.json())
-        .then(setUsers);
+        .then(async res => {
+            if (!res.ok) {
+                throw new Error('加载用户失败');
+            }
+            const data = await res.json();
+            return Array.isArray(data) ? data : [];
+        })
+        .then(setUsers)
+        .catch(() => {
+            setUsers([]);
+            toast.error('加载用户失败');
+        });
 
     useEffect(() => {
         refresh();
@@ -46,8 +57,15 @@ const AdminDashboard = () => {
             .then(res => res.json())
             .then(s => {
                 setShowUserPath(s?.showUserPath !== false);
+                setPasswordMinLength(s?.passwordMinLength ?? 8);
             });
     }, [token]);
+
+    useEffect(() => {
+        if (mustChangePassword) {
+            setShowPwdModal(true);
+        }
+    }, [mustChangePassword]);
 
     const handleCreate = async () => {
         if (!newUser || !newPwd) {
@@ -198,6 +216,11 @@ const AdminDashboard = () => {
             </nav>
 
             <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+                {mustChangePassword && (
+                    <div className="p-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 text-amber-200 text-sm">
+                        检测到默认管理员密码，请先修改密码后再使用管理功能。
+                    </div>
+                )}
                 {/* 操作卡片行 */}
                 <div className="flex flex-col md:flex-row gap-6 items-start">
                     {/* 创建用户卡片 - 可折叠 */}
@@ -370,6 +393,7 @@ const AdminDashboard = () => {
                     userId={resettingUser}
                     token={token}
                     isAdmin={true}
+                    minLength={passwordMinLength}
                     onClose={handlePwdModalClose}
                 />
             )}
@@ -378,9 +402,13 @@ const AdminDashboard = () => {
                 <ChangePasswordModal
                     token={token}
                     isAdmin={false}
+                    minLength={passwordMinLength}
                     onClose={(success) => {
                         setShowPwdModal(false);
-                        if (success) toast.success('密码修改成功！');
+                        if (success) {
+                            setMustChangePassword(false);
+                            toast.success('密码修改成功！');
+                        }
                     }}
                 />
             )}

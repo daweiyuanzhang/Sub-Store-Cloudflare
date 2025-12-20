@@ -12,6 +12,7 @@ import { setupGlobals } from './core/globals.js';
 import { handleSubStoreHttpRequest, handleSubStoreCronRequest } from './core/substore.js';
 import { handleCORS } from './core/request.js';
 import { initLogger, info, error } from './utils/logger.js';
+import { getSystemSettings, updateSystemSettings } from './dashboard/settings.js';
 
 /**
  * Workers Export
@@ -73,16 +74,63 @@ export default {
         info('[Cron] 开始执行定时任务...');
 
         try {
-            // 获取所有用户
-            const { results: users } = await env.DB.prepare('SELECT * FROM users').all();
-            info(`[Cron] 找到 ${users.length} 个用户`);
+            const settings = await getSystemSettings(env.DB);
+            const batchSize = Math.max(1, parseInt(settings.cronBatchSize ?? 50, 10));
+            const maxUsers = Math.max(0, parseInt(settings.cronMaxUsers ?? 200, 10));
+            const timeBudgetMs = Math.max(1000, parseInt(settings.cronTimeBudgetMs ?? 20000, 10));
+            let lastUserId = Math.max(0, parseInt(settings.cronLastUserId ?? 0, 10));
+            let processed = 0;
+            let lastProcessedId = lastUserId;
+            let finishedAll = false;
+            let stopReason = '';
+            const startTime = Date.now();
 
-            // 遍历处理每个用户
-            for (const user of users) {
-                await handleSubStoreCronRequest({ user, env });
+            outer: while (true) {
+                if (Date.now() - startTime > timeBudgetMs) {
+                    stopReason = 'time-budget';
+                    break;
+                }
+
+                const { results: users } = await env.DB
+                    .prepare('SELECT * FROM users WHERE id > ? ORDER BY id LIMIT ?')
+                    .bind(lastProcessedId, batchSize)
+                    .all();
+
+                if (!users || users.length === 0) {
+                    finishedAll = true;
+                    break;
+                }
+
+                for (const user of users) {
+                    if (maxUsers > 0 && processed >= maxUsers) {
+                        stopReason = 'max-users';
+                        break outer;
+                    }
+                    if (Date.now() - startTime > timeBudgetMs) {
+                        stopReason = 'time-budget';
+                        break outer;
+                    }
+                    await handleSubStoreCronRequest({ user, env });
+                    processed += 1;
+                    lastProcessedId = user.id;
+                }
             }
 
-            info('[Cron] 定时任务执行完成');
+            if (finishedAll) {
+                settings.cronLastUserId = 0;
+            } else if (lastProcessedId > 0) {
+                settings.cronLastUserId = lastProcessedId;
+            }
+
+            await updateSystemSettings(env.DB, settings);
+
+            if (stopReason === 'max-users') {
+                info(`[Cron] 已达到本次最大处理上限: ${maxUsers}`);
+            } else if (stopReason === 'time-budget') {
+                info(`[Cron] 超出时间预算(${timeBudgetMs}ms)，提前结束`);
+            }
+
+            info(`[Cron] 定时任务执行完成，处理用户数: ${processed}`);
         } catch (err) {
             error('[Cron] 定时任务执行失败:', err.message);
         }

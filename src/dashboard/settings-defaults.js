@@ -15,4 +15,14 @@ export const defaultSettings = {
     // Turnstile 配置（仅当 captchaType = 'turnstile' 时使用）
     turnstileSiteKey: '',
     turnstileSecretKey: '',
+    // 密码最小长度
+    passwordMinLength: 8,
+    // 定时任务每批处理的用户数
+    cronBatchSize: 50,
+    // 定时任务单次最大处理用户数（0 表示不限制）
+    cronMaxUsers: 200,
+    // 定时任务时间预算（毫秒）
+    cronTimeBudgetMs: 20000,
+    // 定时任务断点续跑的用户 ID
+    cronLastUserId: 0,
 };

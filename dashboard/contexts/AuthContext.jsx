@@ -19,6 +19,9 @@ export const AuthProvider = ({ children }) => {
     const [frontendUrl, setFrontendUrl] = useState(() =>
         localStorage.getItem('ss_frontend_url') || FRONTEND_DEFAULT_URL
     );
+    const [mustChangePassword, setMustChangePassword] = useState(() =>
+        localStorage.getItem('ss_must_change_password') === '1'
+    );
     const [validating, setValidating] = useState(!!localStorage.getItem('ss_token'));
 
     const isAuthenticated = !!token;
@@ -76,7 +79,7 @@ export const AuthProvider = ({ children }) => {
         validateToken();
     }, []);
 
-    const login = (newToken, newRole, path, feUrl) => {
+    const login = (newToken, newRole, path, feUrl, mustChange = false) => {
         localStorage.setItem('ss_token', newToken);
         localStorage.setItem('ss_role', newRole);
         localStorage.setItem('ss_path', path || '');
@@ -84,9 +87,11 @@ export const AuthProvider = ({ children }) => {
             localStorage.setItem('ss_frontend_url', feUrl);
             setFrontendUrl(feUrl);
         }
+        localStorage.setItem('ss_must_change_password', mustChange ? '1' : '0');
         setToken(newToken);
         setRole(newRole);
         setUserPath(path || '');
+        setMustChangePassword(!!mustChange);
     };
 
     const logout = () => {
@@ -94,10 +99,12 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('ss_role');
         localStorage.removeItem('ss_path');
         localStorage.removeItem('ss_frontend_url');
+        localStorage.removeItem('ss_must_change_password');
         setToken(null);
         setRole(null);
         setUserPath(null);
         setFrontendUrl(FRONTEND_DEFAULT_URL);
+        setMustChangePassword(false);
     };
 
     const updatePath = (newPath) => {
@@ -112,10 +119,12 @@ export const AuthProvider = ({ children }) => {
         frontendUrl,
         isAuthenticated,
         isAdmin,
+        mustChangePassword,
         validating,
         login,
         logout,
         updatePath,
+        setMustChangePassword,
     };
 
     // 验证期间显示加载状态

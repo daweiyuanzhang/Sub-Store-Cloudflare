@@ -12,6 +12,8 @@ import { handlePublicRoutes } from './routes/public.js';
 import { handleUserRoutes } from './routes/user.js';
 import { handleAdminRoutes } from './routes/admin.js';
 import { error as logError } from '../utils/logger.js';
+import { getUserById } from './user.js';
+import { verifyPassword } from './password.js';
 
 /**
  * Handle Dashboard API Requests
@@ -58,9 +60,23 @@ export async function handleDashboardRequest(request, env) {
         if (publicResult) return publicResult;
 
         // ===== 需要认证的路由 =====
-        const authPayload = await authenticateRequest(request, env.DB);
+        const authPayload = await authenticateRequest(request, env.DB, env);
         if (!authPayload) {
             return errorResponse('Unauthorized', 401);
+        }
+
+        if (authPayload.role === 'admin') {
+            const currentUser = await getUserById(env.DB, authPayload.id);
+            const mustChangePassword = currentUser
+                ? await verifyPassword('admin', currentUser.password_hash)
+                : false;
+
+            const allowChangePassword = path === '/api/dashboard/user/password' && method === 'POST';
+            const allowReadMe = path === '/api/dashboard/user/me' && method === 'GET';
+
+            if (mustChangePassword && !(allowChangePassword || allowReadMe)) {
+                return errorResponse('请先修改默认管理员密码', 403);
+            }
         }
 
         // 用户路由
