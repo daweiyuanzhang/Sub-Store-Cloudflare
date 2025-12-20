@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useImpersonate } from '../contexts/ImpersonateContext';
 import { useToast } from './Toast';
@@ -6,7 +7,6 @@ import ChangePasswordModal from './ChangePasswordModal';
 import EditUserModal from './EditUserModal';
 import ChangeUsernameModal from './ChangeUsernameModal';
 import Footer from './Footer';
-import SystemSettings from './SystemSettings';
 
 const AdminDashboard = () => {
     const { token, frontendUrl, logout } = useAuth();
@@ -25,7 +25,8 @@ const AdminDashboard = () => {
     const [showUsernameModal, setShowUsernameModal] = useState(false);
     const [currentUsername, setCurrentUsername] = useState('');
     const [createExpanded, setCreateExpanded] = useState(false);
-    const [showSettings, setShowSettings] = useState(false);
+    const [showUserPath, setShowUserPath] = useState(true);
+    const [deletingUser, setDeletingUser] = useState(null); // { id, username }
 
     const refresh = () => fetch('/api/dashboard/admin/users', { headers: { 'Authorization': `Bearer ${token}` } })
         .then(res => res.json())
@@ -39,6 +40,12 @@ const AdminDashboard = () => {
             .then(d => {
                 setCurrentUsername(d?.username || '');
                 setAvatarUrl(d?.avatarUrl || '');
+            });
+        // 获取系统设置
+        fetch('/api/dashboard/admin/settings', { headers: { 'Authorization': `Bearer ${token}` } })
+            .then(res => res.json())
+            .then(s => {
+                setShowUserPath(s?.showUserPath !== false);
             });
     }, [token]);
 
@@ -75,12 +82,16 @@ const AdminDashboard = () => {
             toast.error('无法删除管理员账户');
             return;
         }
-        if (!confirm(`确定要删除用户 "${username}" 吗？\n\n⚠️ 该用户的所有数据将被永久删除！`)) return;
+        setDeletingUser({ id, username });
+    };
 
-        await fetch(`/api/dashboard/admin/user/${id}`, {
+    const confirmDelete = async () => {
+        if (!deletingUser) return;
+        await fetch(`/api/dashboard/admin/user/${deletingUser.id}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
+        setDeletingUser(null);
         refresh();
     };
 
@@ -99,11 +110,6 @@ const AdminDashboard = () => {
 
     const baseUrl = window.location.origin;
     const getOpenFrontendUrl = (userPath) => `${frontendUrl}?api=${encodeURIComponent(`${baseUrl}/${userPath}`)}`;
-
-    // 显示系统设置页面
-    if (showSettings) {
-        return <SystemSettings onBack={() => setShowSettings(false)} />;
-    }
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
@@ -193,9 +199,9 @@ const AdminDashboard = () => {
 
             <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
                 {/* 操作卡片行 */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="flex flex-col md:flex-row gap-6 items-start">
                     {/* 创建用户卡片 - 可折叠 */}
-                    <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
+                    <div className="w-full md:w-1/2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
                         <button
                             onClick={() => setCreateExpanded(!createExpanded)}
                             className="w-full p-6 flex items-center justify-between text-left hover:bg-white/5 transition-colors"
@@ -245,9 +251,9 @@ const AdminDashboard = () => {
                     </div>
 
                     {/* 系统设置卡片 */}
-                    <button
-                        onClick={() => setShowSettings(true)}
-                        className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 flex items-center justify-between w-full text-left hover:bg-white/10 transition-colors"
+                    <Link
+                        to="/settings"
+                        className="w-full md:w-1/2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 flex items-center justify-between text-left hover:bg-white/10 transition-colors"
                     >
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
@@ -264,7 +270,7 @@ const AdminDashboard = () => {
                         <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
-                    </button>
+                    </Link>
                 </div>
 
                 {/* 用户列表 */}
@@ -298,7 +304,9 @@ const AdminDashboard = () => {
                                                 <span className="px-2 py-0.5 bg-slate-700/50 text-gray-400 rounded text-xs">{u.notes}</span>
                                             )}
                                         </div>
-                                        <code className="text-gray-500 text-xs font-mono truncate block">{u.path}</code>
+                                        {showUserPath && (
+                                            <code className="text-gray-500 text-xs font-mono truncate block">{u.path}</code>
+                                        )}
                                     </div>
                                 </div>
 
@@ -324,12 +332,6 @@ const AdminDashboard = () => {
                                         className="px-3 py-1.5 bg-slate-700 text-gray-300 hover:bg-slate-600 rounded-lg text-xs transition-colors"
                                     >
                                         编辑
-                                    </button>
-                                    <button
-                                        onClick={() => setResettingUser(u.id)}
-                                        className="px-3 py-1.5 bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 rounded-lg text-xs transition-colors"
-                                    >
-                                        密码
                                     </button>
                                     {u.role !== 'admin' && (
                                         <button
@@ -359,6 +361,7 @@ const AdminDashboard = () => {
                     baseUrl={baseUrl}
                     onClose={() => setEditingUser(null)}
                     onSuccess={() => { setEditingUser(null); refresh(); }}
+                    onRefresh={refresh}
                 />
             )}
 
@@ -393,6 +396,42 @@ const AdminDashboard = () => {
                         toast.success('用户名修改成功！');
                     }}
                 />
+            )}
+
+            {/* 删除确认弹窗 */}
+            {deletingUser && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-800 border border-slate-700 p-6 rounded-2xl shadow-2xl w-full max-w-sm">
+                        <div className="text-center">
+                            <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
+                                <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                            </div>
+                            <h3 className="text-lg font-semibold text-white mb-2">确认删除</h3>
+                            <p className="text-gray-400 text-sm mb-1">
+                                确定要删除用户 <span className="text-red-400 font-medium">"{deletingUser.username}"</span> 吗？
+                            </p>
+                            <p className="text-red-400/80 text-xs">
+                                ⚠️ 该用户的所有数据将被永久删除！
+                            </p>
+                        </div>
+                        <div className="flex gap-3 mt-6">
+                            <button
+                                onClick={() => setDeletingUser(null)}
+                                className="flex-1 py-3 bg-slate-700 text-gray-300 rounded-xl hover:bg-slate-600 transition-colors"
+                            >
+                                取消
+                            </button>
+                            <button
+                                onClick={confirmDelete}
+                                className="flex-1 py-3 bg-red-600 text-white rounded-xl hover:bg-red-500 transition-colors"
+                            >
+                                删除
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             <Footer />

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from './Toast';
 import Footer from './Footer';
 
-const SystemSettings = ({ onBack }) => {
+const SystemSettings = () => {
+    const navigate = useNavigate();
     const { token } = useAuth();
     const toast = useToast();
 
@@ -68,7 +70,7 @@ const SystemSettings = ({ onBack }) => {
                 <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
                     <div className="flex items-center gap-3">
                         <button
-                            onClick={onBack}
+                            onClick={() => navigate('/')}
                             className="text-gray-400 hover:text-white transition-colors"
                         >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -122,6 +124,22 @@ const SystemSettings = ({ onBack }) => {
                             <p className="text-gray-500 text-xs mt-2">
                                 用户登录后 Token 的有效时长，默认 168 小时（7 天），最大 8760 小时（1 年）
                             </p>
+                        </div>
+
+                        {/* Show User Path */}
+                        <div className="flex items-center justify-between p-4 bg-slate-700/30 rounded-xl">
+                            <div>
+                                <p className="text-white text-sm font-medium">显示用户路径</p>
+                                <p className="text-gray-500 text-xs mt-1">在用户列表中显示用户的访问路径</p>
+                            </div>
+                            <button
+                                onClick={() => updateSetting('showUserPath', !settings.showUserPath)}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.showUserPath !== false ? 'bg-gradient-to-r from-cyan-500 to-purple-600' : 'bg-slate-600'
+                                    }`}
+                            >
+                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.showUserPath !== false ? 'translate-x-6' : 'translate-x-1'
+                                    }`} />
+                            </button>
                         </div>
 
                         {/* 保存按钮 */}

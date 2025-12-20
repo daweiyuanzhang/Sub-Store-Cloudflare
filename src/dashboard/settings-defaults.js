@@ -8,4 +8,6 @@ export const defaultSettings = {
     frontendUrl: 'https://sub-store.vercel.app/',
     // 登录 Token 过期时间（小时），默认 7 天
     tokenExpiryHours: 168,
+    // 在用户列表中显示用户路径
+    showUserPath: true,
 };
