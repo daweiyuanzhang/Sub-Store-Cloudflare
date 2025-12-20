@@ -3,7 +3,7 @@
  * 使用 Web Crypto API 实现安全的密码存储
  */
 
-const PBKDF2_ITERATIONS = 120000;
+const PBKDF2_ITERATIONS = 100000;
 const PBKDF2_HASH_BYTES = 32;
 const PBKDF2_SALT_BYTES = 16;
 
