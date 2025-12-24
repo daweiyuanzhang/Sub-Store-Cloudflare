@@ -6,6 +6,15 @@
 import { debug } from '../utils/logger.js';
 
 /**
+ * 去掉第一个 path segment（用于把 /{userPath}/xxx 转成 /xxx）
+ * @param {string} pathname
+ */
+export function stripFirstPathSegment(pathname) {
+    const segments = String(pathname || '').split('/').filter(Boolean);
+    return '/' + segments.slice(1).join('/');
+}
+
+/**
  * CORS 响应头
  */
 export const CORS_HEADERS = {

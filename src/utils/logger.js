@@ -81,6 +81,37 @@ export function requestBrief(requestId, method, path) {
     console.log(`[Workers] [${requestId}] ${method} ${path}`);
 }
 
+/**
+ * 获取/生成 requestId（用于串联 Worker -> DO -> Sub-Store 的日志）
+ * - 优先使用上游传入的 X-Request-Id
+ * - 其次使用 Cloudflare 的 CF-Ray
+ * - 最后生成一个随机值
+ * @param {Request} request
+ */
+export function getRequestId(request) {
+    try {
+        const existing = request?.headers?.get?.('X-Request-Id');
+        if (existing) return existing;
+        const cfRay = request?.headers?.get?.('CF-Ray');
+        if (cfRay) return cfRay;
+    } catch {
+        // ignore
+    }
+    return `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+/**
+ * 给 headers 补齐 X-Request-Id（便于跨组件串联日志）
+ * @param {Headers} headers
+ * @param {string} requestId
+ */
+export function setRequestIdHeader(headers, requestId) {
+    if (!headers || !requestId) return;
+    if (!headers.get('X-Request-Id')) {
+        headers.set('X-Request-Id', requestId);
+    }
+}
+
 // 默认导出
 export default {
     setDebugMode,
@@ -91,5 +122,7 @@ export default {
     warn,
     error,
     request,
-    requestBrief
+    requestBrief,
+    getRequestId,
+    setRequestIdHeader,
 };

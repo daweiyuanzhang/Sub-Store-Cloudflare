@@ -1,7 +1,11 @@
 import { DurableObject } from 'cloudflare:workers';
+import { Storage } from '@cloudflare/actors/storage';
 import { handleDashboardRequest } from '../dashboard/router.js';
-import { createSqliteDb } from '../dashboard/db.js';
 import { getSystemSettings, updateSystemSettings } from '../dashboard/settings.js';
+import { getRequestId, initLogger, debug, error as logError } from '../utils/logger.js';
+import { createUserClient } from '../do/clients.js';
+import { jsonResponse, errorResponse } from '../utils/response.js';
+import { INDEX_ENDPOINTS } from '../do/endpoints.js';
 
 const INDEX_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS users (
@@ -35,128 +39,131 @@ CREATE TABLE IF NOT EXISTS system_settings (
 INSERT OR IGNORE INTO system_settings (id, settings, updated_at) VALUES (1, '{}', (strftime('%s', 'now') * 1000));
 `;
 
-function jsonResponse(data, status = 200) {
-    return new Response(JSON.stringify(data), {
-        status,
-        headers: { 'Content-Type': 'application/json' },
-    });
-}
-
-function errorResponse(message, status = 400) {
-    return jsonResponse({ error: message }, status);
-}
-
+/**
+ * IndexDO（全局 Durable Object）
+ */
 export class IndexDO extends DurableObject {
     constructor(state, env) {
         super(state, env);
         this.state = state;
         this.env = env;
-        this.sql = state.storage.sql;
-        this.sql.exec(INDEX_SCHEMA_SQL);
-    }
-
-    #userStub(userId) {
-        const id = this.env.USER_DO.idFromName(String(userId));
-        return this.env.USER_DO.get(id);
+        this.storage = new Storage(state.storage);
+        // 建表（多语句 DDL 直接走底层 sql.exec，避免不同封装对多语句支持不一致）
+        state.storage.sql.exec(INDEX_SCHEMA_SQL);
     }
 
     async fetch(request) {
+        // Durable Object 是独立 isolate，需要在 DO 内部也初始化 logger
+        initLogger(this.env);
+
         const url = new URL(request.url);
         const path = url.pathname;
+        const method = request.method;
 
-        if (path.startsWith('/_internal/index/settings') && request.method === 'GET') {
-            const db = createSqliteDb(this.sql);
-            const settings = await getSystemSettings(db);
-            return jsonResponse(settings);
+        const requestId = getRequestId(request);
+
+        debug(`[IndexDO] [${requestId}] ${method} ${path}`);
+
+        const baseCtx = { storage: this.storage };
+
+        try {
+            // ===== 内部接口：系统设置 =====
+            if (path === INDEX_ENDPOINTS.SETTINGS && method === 'GET') {
+                return jsonResponse(await getSystemSettings(baseCtx));
+            }
+
+            if (path === INDEX_ENDPOINTS.SETTINGS && method === 'POST') {
+                const patch = await request.json();
+                const current = await getSystemSettings(baseCtx);
+                const next = { ...current, ...patch };
+                await updateSystemSettings(baseCtx, next);
+                return jsonResponse({ ok: true });
+            }
+
+            // ===== 内部接口：按 path 反查用户 =====
+            if (path === INDEX_ENDPOINTS.USER_BY_PATH && method === 'GET') {
+                const userPath = url.searchParams.get('path') || '';
+                if (!userPath) return errorResponse('path required', 400);
+                const row = this.storage.sql`
+                    SELECT id, username, role, path
+                    FROM users
+                    WHERE path = ${userPath};
+                `[0];
+                if (!row) return errorResponse('Not Found', 404);
+                return jsonResponse(row);
+            }
+
+            // ===== 内部接口：分页列出用户（Cron / 管理功能用）=====
+            if (path === INDEX_ENDPOINTS.USERS_LIST && method === 'GET') {
+                const afterId = parseInt(url.searchParams.get('afterId') || '0', 10) || 0;
+                const limit = Math.min(1000, Math.max(1, parseInt(url.searchParams.get('limit') || '200', 10) || 200));
+                const results = this.storage.sql`
+                    SELECT id, username, role, path
+                    FROM users
+                    WHERE id > ${afterId}
+                    ORDER BY id
+                    LIMIT ${limit};
+                `;
+                return jsonResponse({ results });
+            }
+
+            // ===== 内部接口：更新 avatar_url（UserDO 解析后回写索引）=====
+            if (path === INDEX_ENDPOINTS.USERS_AVATAR && method === 'POST') {
+                const body = await request.json();
+                const userId = parseInt(body?.userId, 10);
+                const avatarUrl = String(body?.avatarUrl || '');
+                if (!userId) return errorResponse('userId required', 400);
+                this.storage.sql`
+                    UPDATE users
+                    SET avatar_url = ${avatarUrl}, updated_at = ${Date.now()}
+                    WHERE id = ${userId};
+                `;
+                return jsonResponse({ ok: true });
+            }
+
+            // ===== 内部接口：透传用户 data（给 dashboard 管理/编辑用）=====
+            if (path === INDEX_ENDPOINTS.USER_DATA && method === 'GET') {
+                const userId = parseInt(url.searchParams.get('userId') || '0', 10) || 0;
+                if (!userId) return errorResponse('userId required', 400);
+                const userClient = createUserClient(this.env, userId);
+                const data = await userClient.getUserData({ id: userId }, requestId);
+                return jsonResponse({ data });
+            }
+
+            if (path === INDEX_ENDPOINTS.USER_DATA && method === 'PUT') {
+                const userId = parseInt(url.searchParams.get('userId') || '0', 10) || 0;
+                if (!userId) return errorResponse('userId required', 400);
+                const userClient = createUserClient(this.env, userId);
+                const body = await request.json();
+                const ok = await userClient.putUserData({ id: userId }, body?.data ?? {}, requestId);
+                return jsonResponse({ ok });
+            }
+
+            // ===== Dashboard API：交给 dashboard/router 处理 =====
+            if (path.startsWith('/api/dashboard')) {
+                const userDataStore = {
+                    get: async (userId) => {
+                        const userClient = createUserClient(this.env, userId);
+                        return await userClient.getUserData({ id: userId }, requestId);
+                    },
+                    put: async (userId, data) => {
+                        const userClient = createUserClient(this.env, userId);
+                        return await userClient.putUserData({ id: userId }, data, requestId);
+                    },
+                    delete: async (userId) => {
+                        const userClient = createUserClient(this.env, userId);
+                        return await userClient.deleteUserData({ id: userId }, requestId);
+                    },
+                };
+
+                const ctx = { ...baseCtx, userDataStore };
+                return handleDashboardRequest(request, { ...this.env, DB: ctx });
+            }
+
+            return new Response('Not Found', { status: 404 });
+        } catch (err) {
+            logError(`[IndexDO] [${requestId}] unhandled error:`, err?.message || err);
+            return errorResponse('Internal Server Error', 500);
         }
-
-        if (path.startsWith('/_internal/index/settings') && request.method === 'POST') {
-            const patch = await request.json();
-            const db = createSqliteDb(this.sql);
-            const current = await getSystemSettings(db);
-            const next = { ...current, ...patch };
-            await updateSystemSettings(db, next);
-            return jsonResponse({ ok: true });
-        }
-
-        if (path.startsWith('/_internal/index/user/by-path') && request.method === 'GET') {
-            const userPath = url.searchParams.get('path') || '';
-            if (!userPath) return errorResponse('path required', 400);
-            const cursor = this.sql.exec('SELECT id, username, role, path FROM users WHERE path = ?;', userPath);
-            const result = cursor.next();
-            if (result.done) return errorResponse('Not Found', 404);
-            return jsonResponse(result.value);
-        }
-
-        if (path.startsWith('/_internal/index/users/list') && request.method === 'GET') {
-            const afterId = parseInt(url.searchParams.get('afterId') || '0', 10) || 0;
-            const limit = Math.min(1000, Math.max(1, parseInt(url.searchParams.get('limit') || '200', 10) || 200));
-            const results = this.sql.exec(
-                'SELECT id, username, role, path FROM users WHERE id > ? ORDER BY id LIMIT ?;',
-                afterId,
-                limit
-            ).toArray();
-            return jsonResponse({ results });
-        }
-
-        if (path.startsWith('/_internal/index/users/avatar') && request.method === 'POST') {
-            const body = await request.json();
-            const userId = parseInt(body?.userId, 10);
-            const avatarUrl = String(body?.avatarUrl || '');
-            if (!userId) return errorResponse('userId required', 400);
-            this.sql.exec('UPDATE users SET avatar_url = ?, updated_at = ? WHERE id = ?;', avatarUrl, Date.now(), userId);
-            return jsonResponse({ ok: true });
-        }
-
-        // Used by admin/user endpoints to fetch user data from UserDO.
-        if (path.startsWith('/_internal/index/user-data') && request.method === 'GET') {
-            const userId = parseInt(url.searchParams.get('userId') || '0', 10) || 0;
-            if (!userId) return errorResponse('userId required', 400);
-            const stub = this.#userStub(userId);
-            const resp = await stub.fetch('https://user/_internal/user-data', { method: 'GET' });
-            return resp;
-        }
-
-        if (path.startsWith('/_internal/index/user-data') && request.method === 'PUT') {
-            const userId = parseInt(url.searchParams.get('userId') || '0', 10) || 0;
-            if (!userId) return errorResponse('userId required', 400);
-            const stub = this.#userStub(userId);
-            const resp = await stub.fetch('https://user/_internal/user-data', request);
-            return resp;
-        }
-
-        if (path.startsWith('/api/dashboard')) {
-            const userDataStore = {
-                get: async (userId) => {
-                    const stub = this.#userStub(userId);
-                    const resp = await stub.fetch('https://user/_internal/user-data', { method: 'GET' });
-                    if (!resp.ok) return null;
-                    const body = await resp.json();
-                    return body?.data ?? null;
-                },
-                put: async (userId, data) => {
-                    const stub = this.#userStub(userId);
-                    const resp = await stub.fetch('https://user/_internal/user-data', {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json', 'X-User-Id': String(userId) },
-                        body: JSON.stringify({ data }),
-                    });
-                    return resp.ok;
-                },
-                delete: async (userId) => {
-                    const stub = this.#userStub(userId);
-                    const resp = await stub.fetch('https://user/_internal/user-data', {
-                        method: 'DELETE',
-                        headers: { 'X-User-Id': String(userId) },
-                    });
-                    return resp.ok;
-                },
-            };
-
-            const db = createSqliteDb(this.sql, { userDataStore });
-            return handleDashboardRequest(request, { ...this.env, DB: db });
-        }
-
-        return new Response('Not Found', { status: 404 });
     }
 }

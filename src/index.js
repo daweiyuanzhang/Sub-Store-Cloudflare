@@ -7,34 +7,25 @@
 import './core/globals.js';
 
 import { handleCORS } from './core/request.js';
-import { initLogger, info, error } from './utils/logger.js';
+import { getRequestId, initLogger, info, error } from './utils/logger.js';
+import { createIndexClient, createUserClient } from './do/clients.js';
 export { IndexDO } from './durable-objects/IndexDO.js';
 export { UserDO } from './durable-objects/UserDO.js';
 
-function getIndexStub(env) {
-    const id = env.INDEX_DO.idFromName('index');
-    return env.INDEX_DO.get(id);
-}
-
-async function getUserByPathFromIndex(env, userPath) {
-    const index = getIndexStub(env);
-    const url = `https://index/_internal/index/user/by-path?path=${encodeURIComponent(userPath)}`;
-    const resp = await index.fetch(url, { method: 'GET' });
-    if (!resp.ok) return null;
-    return await resp.json();
-}
-
-async function listUsersFromIndex(env, afterId, limit) {
-    const index = getIndexStub(env);
-    const url = `https://index/_internal/index/users/list?afterId=${afterId}&limit=${limit}`;
-    const resp = await index.fetch(url, { method: 'GET' });
-    if (!resp.ok) return { results: [] };
-    return await resp.json();
-}
-
-function getUserStub(env, userId) {
-    const id = env.USER_DO.idFromName(String(userId));
-    return env.USER_DO.get(id);
+function withRequestIdResponseHeader(response, requestId) {
+    try {
+        if (!response || !requestId) return response;
+        if (response.headers?.get?.('X-Request-Id')) return response;
+        const headers = new Headers(response.headers);
+        headers.set('X-Request-Id', requestId);
+        return new Response(response.body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers,
+        });
+    } catch {
+        return response;
+    }
 }
 
 /**
@@ -47,55 +38,48 @@ export default {
     async fetch(request, env, ctx) {
         // 初始化日志模块
         initLogger(env);
+        const requestId = getRequestId(request);
 
         const url = new URL(request.url);
         const pathSegments = url.pathname.split('/').filter(Boolean);
+        const indexClient = createIndexClient(env);
 
         // CORS 预检
         if (request.method === 'OPTIONS') {
-            return handleCORS();
+            return withRequestIdResponseHeader(handleCORS(), requestId);
         }
 
         // 1. Dashboard 路由 (优先)
         if (url.pathname.startsWith('/dashboard') || url.pathname.startsWith('/api/dashboard')) {
             if (url.pathname.startsWith('/api/dashboard')) {
-                return getIndexStub(env).fetch(request);
+                return withRequestIdResponseHeader(await indexClient.stub.fetch(request), requestId);
             }
 
             // 静态资源与 SPA 路由仍由 Worker 本身处理
             if (url.pathname.startsWith('/dashboard/assets/')) {
-                return env.ASSETS.fetch(request);
+                return withRequestIdResponseHeader(await env.ASSETS.fetch(request), requestId);
             }
             // SPA：所有 /dashboard/* 返回 index.html
             const indexUrl = new URL(request.url);
             indexUrl.pathname = '/dashboard/index.html';
-            return env.ASSETS.fetch(indexUrl.toString());
+            return withRequestIdResponseHeader(await env.ASSETS.fetch(indexUrl.toString()), requestId);
         }
 
         // 2. 尝试匹配用户路径
         if (pathSegments.length === 0) {
-            return new Response('Not Found', { status: 404 });
+            return withRequestIdResponseHeader(new Response('Not Found', { status: 404 }), requestId);
         }
 
         const userPath = pathSegments[0];
-        const user = await getUserByPathFromIndex(env, userPath);
+        const user = await indexClient.getUserByPath(userPath, requestId);
 
         if (!user) {
-            return new Response('Not Found', { status: 404 });
+            return withRequestIdResponseHeader(new Response('Not Found', { status: 404 }), requestId);
         }
 
-        // 3. 重写路径：去掉用户前缀
-        const newUrl = new URL(request.url);
-        newUrl.pathname = '/' + pathSegments.slice(1).join('/');
-        newUrl.search = url.search;
-        const forwardedRequest = new Request(newUrl.toString(), request);
-        forwardedRequest.headers.set('X-User-Id', String(user.id));
-        forwardedRequest.headers.set('X-Username', user.username);
-        forwardedRequest.headers.set('X-Role', user.role);
-        forwardedRequest.headers.set('X-User-Path', user.path);
-
-        // 4. 转发到用户 Durable Object（同一用户串行）
-        return getUserStub(env, user.id).fetch(forwardedRequest);
+        // 3. 转发到用户 Durable Object（同一用户串行）
+        const userClient = createUserClient(env, user.id);
+        return withRequestIdResponseHeader(await userClient.forwardSubStoreRequest(request, user, requestId), requestId);
     },
 
     /**
@@ -108,9 +92,8 @@ export default {
         info('[Cron] 开始执行定时任务...');
 
         try {
-            const index = getIndexStub(env);
-            const settingsResp = await index.fetch('https://index/_internal/index/settings', { method: 'GET' });
-            const settings = settingsResp.ok ? await settingsResp.json() : {};
+            const indexClient = createIndexClient(env);
+            const settings = await indexClient.getSettings('cron');
 
             const batchSize = Math.max(1, parseInt(settings.cronBatchSize ?? 50, 10));
             const maxUsers = Math.max(0, parseInt(settings.cronMaxUsers ?? 200, 10));
@@ -129,7 +112,7 @@ export default {
                     break;
                 }
 
-                const page = await listUsersFromIndex(env, lastProcessedId, batchSize);
+                const page = await indexClient.listUsers({ afterId: lastProcessedId, limit: batchSize }, 'cron');
                 const users = page?.results || [];
                 if (users.length === 0) {
                     finishedAll = true;
@@ -146,16 +129,8 @@ export default {
                         break outer;
                     }
 
-                    const userReq = new Request('https://user/_internal/cron', {
-                        method: 'POST',
-                        headers: {
-                            'X-User-Id': String(user.id),
-                            'X-Username': user.username,
-                            'X-Role': user.role,
-                            'X-User-Path': user.path,
-                        },
-                    });
-                    await getUserStub(env, user.id).fetch(userReq);
+                    const userClient = createUserClient(env, user.id);
+                    await userClient.cron(user, 'cron');
 
                     processed += 1;
                     lastProcessedId = user.id;
@@ -163,17 +138,9 @@ export default {
             }
 
             if (finishedAll) {
-                await index.fetch('https://index/_internal/index/settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ cronLastUserId: 0 }),
-                });
+                await indexClient.patchSettings({ cronLastUserId: 0 }, 'cron');
             } else if (lastProcessedId > 0) {
-                await index.fetch('https://index/_internal/index/settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ cronLastUserId: lastProcessedId }),
-                });
+                await indexClient.patchSettings({ cronLastUserId: lastProcessedId }, 'cron');
             }
 
             if (stopReason === 'max-users') {

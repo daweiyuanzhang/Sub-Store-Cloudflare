@@ -41,11 +41,11 @@ export async function handlePublicRoutes(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
-    const db = env.DB;
+    const ctx = env.DB;
 
     // GET /api/dashboard/captcha
     if (path === '/api/dashboard/captcha' && method === 'GET') {
-        const captcha = await createCaptcha(db);
+        const captcha = await createCaptcha(ctx);
         return jsonResponse(captcha);
     }
 
@@ -58,7 +58,7 @@ export async function handlePublicRoutes(request, env) {
             return cached;
         }
 
-        const settings = await getSystemSettings(db);
+        const settings = await getSystemSettings(ctx);
         const captchaType = settings.captchaType || 'builtin';
         const turnstileSiteKey = captchaType === 'turnstile'
             ? settings.turnstileSiteKey
@@ -80,7 +80,7 @@ export async function handlePublicRoutes(request, env) {
         const { username, password, captchaId, captchaCode, turnstileToken } = body;
 
         // 根据配置选择验证方式
-        const settings = await getSystemSettings(db);
+        const settings = await getSystemSettings(ctx);
         let captchaType = settings.captchaType || 'builtin';
 
         if (captchaType === 'turnstile') {
@@ -99,21 +99,21 @@ export async function handlePublicRoutes(request, env) {
             }
         } else {
             // 内置验证码
-            const valid = await verifyCaptcha(db, captchaId, captchaCode);
+            const valid = await verifyCaptcha(ctx, captchaId, captchaCode);
             if (!valid) {
                 return errorResponse('验证码错误或已过期');
             }
         }
 
-        let user = await getUser(db, username);
+        let user = await getUser(ctx, username);
 
         // First time init: if no users, create admin
         if (!user && username === 'admin') {
-            const count = await countUsers(db);
+            const count = await countUsers(ctx);
             if (count === 0) {
                 const hashedPassword = await hashPassword('admin');
-                await createUser(db, 'admin', hashedPassword, 'admin');
-                user = await getUser(db, 'admin');
+                await createUser(ctx, 'admin', hashedPassword, 'admin');
+                user = await getUser(ctx, 'admin');
             }
         }
 
@@ -125,7 +125,7 @@ export async function handlePublicRoutes(request, env) {
             && await verifyPassword('admin', user.password_hash);
 
         // 获取可配置的 Token 过期时间
-        const expiryHours = await getTokenExpiryHours(db);
+        const expiryHours = await getTokenExpiryHours(ctx);
         const token = await signToken({
             id: user.id,
             username: user.username,

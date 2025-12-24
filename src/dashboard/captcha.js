@@ -84,9 +84,9 @@ function generateCaptchaId() {
 /**
  * 清理过期验证码
  */
-async function cleanExpired(db) {
+async function cleanExpired(ctx) {
     try {
-        await captchaRepo.deleteExpiredCaptchas(db, Date.now());
+        await captchaRepo.deleteExpiredCaptchas(ctx, Date.now());
     } catch (e) {
         // 忽略清理错误
     }
@@ -94,59 +94,59 @@ async function cleanExpired(db) {
 
 /**
  * 创建新验证码
- * @param {DB} db
+ * @param {object} ctx
  * @returns {Promise<{ id: string, svg: string }>}
  */
-export async function createCaptcha(db) {
+export async function createCaptcha(ctx) {
     // 清理过期验证码
-    await cleanExpired(db);
+    await cleanExpired(ctx);
 
     const code = generateCode();
     const id = generateCaptchaId();
     const svg = generateSVG(code);
     const expiresAt = Date.now() + CAPTCHA_EXPIRES;
 
-    await captchaRepo.insertCaptcha(db, id, code.toUpperCase(), expiresAt);
+    await captchaRepo.insertCaptcha(ctx, id, code.toUpperCase(), expiresAt);
 
     return { id, svg };
 }
 
 /**
  * 验证验证码
- * @param {DB} db
+ * @param {object} ctx
  * @param {string} id 验证码 ID
  * @param {string} input 用户输入
  * @returns {Promise<boolean>}
  */
-export async function verifyCaptcha(db, id, input) {
+export async function verifyCaptcha(ctx, id, input) {
     if (!id || !input) return false;
 
     try {
-        const result = await captchaRepo.getCaptchaForVerify(db, id);
+        const result = await captchaRepo.getCaptchaForVerify(ctx, id);
 
         if (!result) return false;
 
         // 检查是否过期
         if (Date.now() > result.expires_at) {
-            await captchaRepo.deleteCaptcha(db, id);
+            await captchaRepo.deleteCaptcha(ctx, id);
             return false;
         }
 
         // 限制尝试次数
         if (result.attempts >= 3) {
-            await captchaRepo.deleteCaptcha(db, id);
+            await captchaRepo.deleteCaptcha(ctx, id);
             return false;
         }
 
         // 更新尝试次数
-        await captchaRepo.incrementCaptchaAttempts(db, id);
+        await captchaRepo.incrementCaptchaAttempts(ctx, id);
 
         // 验证（不区分大小写）
         const isValid = result.code === input.toUpperCase();
 
         // 验证成功后删除，防止重复使用
         if (isValid) {
-            await captchaRepo.deleteCaptcha(db, id);
+            await captchaRepo.deleteCaptcha(ctx, id);
         }
 
         return isValid;

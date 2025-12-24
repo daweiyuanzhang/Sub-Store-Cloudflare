@@ -21,7 +21,7 @@ export async function handleUserRoutes(request, env, authPayload) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
-    const db = env.DB;
+    const ctx = env.DB;
 
     // 只处理 /api/dashboard/user 路径
     if (!path.startsWith('/api/dashboard/user')) {
@@ -30,7 +30,7 @@ export async function handleUserRoutes(request, env, authPayload) {
 
     // GET /api/dashboard/user/me
     if (path === '/api/dashboard/user/me' && method === 'GET') {
-        const user = await getUserById(db, authPayload.id);
+        const user = await getUserById(ctx, authPayload.id);
         const avatarUrl = user?.avatar_url || user?.avatarUrl || '';
         return jsonResponse({ ...user, avatarUrl, avatar_url: undefined });
     }
@@ -38,20 +38,20 @@ export async function handleUserRoutes(request, env, authPayload) {
     // POST /api/dashboard/user/me
     if (path === '/api/dashboard/user/me' && method === 'POST') {
         const newData = await request.json();
-        await updateUserData(db, authPayload.id, newData);
+        await updateUserData(ctx, authPayload.id, newData);
         return okResponse();
     }
 
     // POST /api/dashboard/user/password
     if (path === '/api/dashboard/user/password' && method === 'POST') {
         const { newPassword } = await request.json();
-        const settings = await getSystemSettings(db);
+        const settings = await getSystemSettings(ctx);
         const passwordMinLength = parseInt(settings?.passwordMinLength ?? 8, 10) || 8;
         if (!newPassword || newPassword.length < passwordMinLength) {
             return errorResponse(`密码长度至少为${passwordMinLength}位`, 400);
         }
         const hashedPassword = await hashPassword(newPassword);
-        await updatePassword(db, authPayload.id, hashedPassword);
+        await updatePassword(ctx, authPayload.id, hashedPassword);
         return okResponse();
     }
 
@@ -61,24 +61,24 @@ export async function handleUserRoutes(request, env, authPayload) {
         if (!newUsername || newUsername.length < 3) {
             return errorResponse('用户名长度过短', 400);
         }
-        const existing = await getUser(db, newUsername);
+        const existing = await getUser(ctx, newUsername);
         if (existing) {
             return errorResponse('用户名已存在');
         }
-        await updateUsername(db, authPayload.id, newUsername);
+        await updateUsername(ctx, authPayload.id, newUsername);
         return okResponse();
     }
 
     // POST /api/dashboard/user/regenerate-path
     if (path === '/api/dashboard/user/regenerate-path' && method === 'POST') {
         const newPath = generatePath();
-        await updatePath(db, authPayload.id, newPath);
+        await updatePath(ctx, authPayload.id, newPath);
         return okResponse({ path: newPath });
     }
 
     // GET /api/dashboard/user/settings
     if (path === '/api/dashboard/user/settings' && method === 'GET') {
-        const user = await getUserById(db, authPayload.id);
+        const user = await getUserById(ctx, authPayload.id);
         let userData = {};
         try {
             userData = JSON.parse(user.data || '{}');
@@ -97,7 +97,7 @@ export async function handleUserRoutes(request, env, authPayload) {
     // POST /api/dashboard/user/settings
     if (path === '/api/dashboard/user/settings' && method === 'POST') {
         const newSettings = await request.json();
-        const user = await getUserById(db, authPayload.id);
+        const user = await getUserById(ctx, authPayload.id);
         let userData = {};
         try {
             userData = JSON.parse(user.data || '{}');
@@ -105,7 +105,7 @@ export async function handleUserRoutes(request, env, authPayload) {
             userData = {};
         }
         userData.__settings__ = newSettings;
-        await updateUserData(db, authPayload.id, userData);
+        await updateUserData(ctx, authPayload.id, userData);
         return okResponse();
     }
 

@@ -4,6 +4,7 @@
 
 import { defaultSettings } from './settings-defaults.js';
 import { getSystemSettingsRow, upsertSystemSettings } from './repos/settingsRepo.js';
+import { debug } from '../utils/logger.js';
 
 const SETTINGS_CACHE_TTL_MS = 30000;
 let settingsCache = null;
@@ -12,15 +13,16 @@ let settingsCacheAt = 0;
 /**
  * 获取系统设置
  * 如果数据库中没有某个 key，则从 defaultSettings 获取并自动保存
- * @param {DB} db 
+ * @param {object} ctx
  * @returns {Promise<object>}
  */
-export async function getSystemSettings(db) {
+export async function getSystemSettings(ctx) {
     if (settingsCache && Date.now() - settingsCacheAt < SETTINGS_CACHE_TTL_MS) {
+        debug('[Settings] cache hit');
         return settingsCache;
     }
 
-    const result = await getSystemSettingsRow(db);
+    const result = await getSystemSettingsRow(ctx);
     let dbSettings = {};
 
     try {
@@ -51,7 +53,7 @@ export async function getSystemSettings(db) {
 
     // 如果有缺失的 key，自动保存到数据库
     if (needsSave) {
-        await updateSystemSettings(db, merged);
+        await updateSystemSettings(ctx, merged);
     }
 
     settingsCache = merged;
@@ -61,24 +63,24 @@ export async function getSystemSettings(db) {
 
 /**
  * 获取单个设置项
- * @param {DB} db 
+ * @param {object} ctx
  * @param {string} key 
  * @returns {Promise<any>}
  */
-export async function getSetting(db, key) {
-    const settings = await getSystemSettings(db);
+export async function getSetting(ctx, key) {
+    const settings = await getSystemSettings(ctx);
     return settings[key];
 }
 
 /**
  * 更新系统设置
- * @param {DB} db 
+ * @param {object} ctx
  * @param {object} settings 
  */
-export async function updateSystemSettings(db, settings) {
+export async function updateSystemSettings(ctx, settings) {
     const json = JSON.stringify(settings);
     const now = Date.now();
-    await upsertSystemSettings(db, json, now);
+    await upsertSystemSettings(ctx, json, now);
     settingsCache = settings;
     settingsCacheAt = Date.now();
 }

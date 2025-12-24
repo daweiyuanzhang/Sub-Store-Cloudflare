@@ -3,6 +3,7 @@
  */
 
 import * as userRepo from './repos/userRepo.js';
+import { debug } from '../utils/logger.js';
 
 const USER_CACHE_TTL_MS = 10000;
 const userCacheById = new Map();
@@ -43,16 +44,19 @@ export function generatePath() {
 
 /**
  * 获取用户信息 (by username)
- * @param {DB} db 
+ * @param {object} ctx
  * @param {string} username 
  */
-export async function getUser(db, username) {
+export async function getUser(ctx, username) {
     const cached = getCached(userCacheByUsername, username);
-    if (cached) return cached;
-    const user = await userRepo.getUserByUsername(db, username);
+    if (cached) {
+        debug('[User] cache hit: username', username);
+        return cached;
+    }
+    const user = await userRepo.getUserByUsername(ctx, username);
     if (user) {
-        if (db.userDataStore && user.id) {
-            const data = await db.userDataStore.get(user.id);
+        if (ctx.userDataStore && user.id) {
+            const data = await ctx.userDataStore.get(user.id);
             if (data !== null && data !== undefined) {
                 user.data = data;
             }
@@ -66,16 +70,19 @@ export async function getUser(db, username) {
 
 /**
  * 获取用户信息 (by id)
- * @param {DB} db 
+ * @param {object} ctx
  * @param {number} id 
  */
-export async function getUserById(db, id) {
+export async function getUserById(ctx, id) {
     const cached = getCached(userCacheById, id);
-    if (cached) return cached;
-    const user = await userRepo.getUserById(db, id);
+    if (cached) {
+        debug('[User] cache hit: id', id);
+        return cached;
+    }
+    const user = await userRepo.getUserById(ctx, id);
     if (user) {
-        if (db.userDataStore && user.id) {
-            const data = await db.userDataStore.get(user.id);
+        if (ctx.userDataStore && user.id) {
+            const data = await ctx.userDataStore.get(user.id);
             if (data !== null && data !== undefined) {
                 user.data = data;
             }
@@ -89,16 +96,19 @@ export async function getUserById(db, id) {
 
 /**
  * 获取用户信息 (by path)
- * @param {DB} db 
+ * @param {object} ctx
  * @param {string} path 
  */
-export async function getUserByPath(db, path) {
+export async function getUserByPath(ctx, path) {
     const cached = getCached(userCacheByPath, path);
-    if (cached) return cached;
-    const user = await userRepo.getUserByPath(db, path);
+    if (cached) {
+        debug('[User] cache hit: path', path);
+        return cached;
+    }
+    const user = await userRepo.getUserByPath(ctx, path);
     if (user) {
-        if (db.userDataStore && user.id) {
-            const data = await db.userDataStore.get(user.id);
+        if (ctx.userDataStore && user.id) {
+            const data = await ctx.userDataStore.get(user.id);
             if (data !== null && data !== undefined) {
                 user.data = data;
             }
@@ -112,68 +122,65 @@ export async function getUserByPath(db, path) {
 
 /**
  * 创建用户 (自动生成 path)
- * @param {DB} db 
+ * @param {object} ctx
  * @param {string} username 
  * @param {string} passwordHash 
  * @param {string} role 
  */
-export async function createUser(db, username, passwordHash, role = 'user') {
+export async function createUser(ctx, username, passwordHash, role = 'user') {
     const path = generatePath();
-    const result = await userRepo.createUser(db, username, passwordHash, role, path);
+    const result = await userRepo.createUser(ctx, username, passwordHash, role, path);
     clearUserCache();
     return result;
 }
 
 /**
  * 更新用户数据 (by id)
- * @param {DB} db 
+ * @param {object} ctx
  * @param {number} id 
  * @param {object} data JSON object
  */
-export async function updateUserData(db, id, data) {
-    if (db.userDataStore) {
-        const ok = await db.userDataStore.put(id, data);
+export async function updateUserData(ctx, id, data) {
+    if (ctx.userDataStore) {
+        const ok = await ctx.userDataStore.put(id, data);
         clearUserCache();
         return { success: !!ok };
     }
-    const now = Date.now();
-    const result = await userRepo.updateUserDataInUsersTable(db, id, JSON.stringify(data), now);
-    clearUserCache();
-    return result;
+    throw new Error('userDataStore 未配置，无法写入用户 data');
 }
 
 /**
  * 更新用户名 (by id, admin only)
- * @param {DB} db 
+ * @param {object} ctx
  * @param {number} id 
  * @param {string} newUsername 
  */
-export async function updateUsername(db, id, newUsername) {
+export async function updateUsername(ctx, id, newUsername) {
     const now = Date.now();
-    const result = await userRepo.updateUsername(db, id, newUsername, now);
+    const result = await userRepo.updateUsername(ctx, id, newUsername, now);
     clearUserCache();
     return result;
 }
 
 /**
  * 更新路径 (by id, admin only)
- * @param {DB} db 
+ * @param {object} ctx
  * @param {number} id 
  * @param {string} newPath 
  */
-export async function updatePath(db, id, newPath) {
+export async function updatePath(ctx, id, newPath) {
     const now = Date.now();
-    const result = await userRepo.updatePath(db, id, newPath, now);
+    const result = await userRepo.updatePath(ctx, id, newPath, now);
     clearUserCache();
     return result;
 }
 
 /**
  * 列出所有用户 (包含 notes 和 avatarUrl 字段供管理员查看)
- * @param {DB} db 
+ * @param {object} ctx
  */
-export async function listUsers(db) {
-    const results = await userRepo.listUsersForAdmin(db);
+export async function listUsers(ctx) {
+    const results = await userRepo.listUsersForAdmin(ctx);
     const users = results.map(user => ({
         ...user,
         avatarUrl: user.avatar_url || '',
@@ -184,27 +191,27 @@ export async function listUsers(db) {
 
 /**
  * 删除用户 (by id)
- * @param {DB} db 
+ * @param {object} ctx
  * @param {number} id 
  */
-export async function deleteUser(db, id) {
-    if (db.userDataStore) {
-        await db.userDataStore.delete(id);
+export async function deleteUser(ctx, id) {
+    if (ctx.userDataStore) {
+        await ctx.userDataStore.delete(id);
     }
-    const result = await userRepo.deleteUser(db, id);
+    const result = await userRepo.deleteUser(ctx, id);
     clearUserCache();
     return result;
 }
 
 /**
  * 更新用户备注 (by id, admin only)
- * @param {DB} db 
+ * @param {object} ctx
  * @param {number} id 
  * @param {string} notes 
  */
-export async function updateNotes(db, id, notes) {
+export async function updateNotes(ctx, id, notes) {
     const now = Date.now();
-    const result = await userRepo.updateNotes(db, id, notes, now);
+    const result = await userRepo.updateNotes(ctx, id, notes, now);
     clearUserCache();
     return result;
 }
@@ -212,13 +219,13 @@ export async function updateNotes(db, id, notes) {
 /**
  * 更新用户密码 (by id)
  * 同时递增 token_version，使所有旧 Token 失效
- * @param {DB} db 
+ * @param {object} ctx
  * @param {number} id 
  * @param {string} passwordHash 
  */
-export async function updatePassword(db, id, passwordHash) {
+export async function updatePassword(ctx, id, passwordHash) {
     const now = Date.now();
-    const result = await userRepo.updatePasswordAndBumpTokenVersion(db, id, passwordHash, now);
+    const result = await userRepo.updatePasswordAndBumpTokenVersion(ctx, id, passwordHash, now);
     clearUserCache();
     return result;
 }
