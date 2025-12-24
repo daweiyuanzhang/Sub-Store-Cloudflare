@@ -196,7 +196,7 @@ jobs:
 
   update-version-cache:
     needs: [check-updates, deploy-backend, deploy-frontend]
-    if: always() && needs.check-updates.outputs.should_deploy == 'true' && (needs.deploy-backend.result == 'success' || needs.deploy-frontend.result == 'success')
+    if: always() && needs.check-updates.outputs.should_deploy == 'true' && needs.deploy-backend.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
