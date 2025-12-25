@@ -20,6 +20,15 @@ on:
         required: false
         type: boolean
         default: false
+      deploy_frontend:
+        description: '是否部署前端（auto=仅版本变化时，deploy=强制部署，skip=跳过）'
+        required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - deploy
+          - skip
 
 env:
   SUBSTORE_REPO: sub-store-org/Sub-Store
@@ -29,7 +38,8 @@ jobs:
   check-updates:
     runs-on: ubuntu-latest
     outputs:
-      should_deploy: ${{ steps.check.outputs.should_deploy }}
+      deploy_backend: ${{ steps.check.outputs.deploy_backend }}
+      deploy_frontend_needed: ${{ steps.check.outputs.deploy_frontend_needed }}
       backend_version: ${{ steps.check.outputs.backend_version }}
       frontend_version: ${{ steps.check.outputs.frontend_version }}
       deploy_frontend: ${{ steps.frontend-check.outputs.deploy_frontend }}
@@ -42,45 +52,70 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
-      - name: Restore version cache
+      - name: Restore Last Version Cache
         uses: actions/cache/restore@v4
         with:
           path: |
             .last-backend-version
             .last-frontend-version
-          key: version-cache-${{ github.run_id }}
+          key: version-cache-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
-            version-cache-
+            version-cache-${{ github.ref_name }}-
 
-      - name: Check for updates
+      - name: Check for New Releases
         id: check
         run: |
           # 获取最新版本
-          BACKEND_VERSION=$(curl -s https://api.github.com/repos/${{ env.SUBSTORE_REPO }}/releases/latest | jq -r '.tag_name')
-          FRONTEND_VERSION=$(curl -s https://api.github.com/repos/${{ env.FRONTEND_REPO }}/releases/latest | jq -r '.tag_name')
-          
+          BACKEND_VERSION=$(curl -m 10 -s https://api.github.com/repos/${{ env.SUBSTORE_REPO }}/releases/latest | jq -r '.tag_name' || echo "fetch-failed")
+          FRONTEND_VERSION=$(curl -m 10 -s https://api.github.com/repos/${{ env.FRONTEND_REPO }}/releases/latest | jq -r '.tag_name' || echo "fetch-failed")
+
+          if [[ "$BACKEND_VERSION" == "fetch-failed" || "$FRONTEND_VERSION" == "fetch-failed" ]]; then
+            echo "::error::获取上游 releases 版本失败（可能是网络/限流），停止部署"
+            exit 1
+          fi
+
           echo "backend_version=$BACKEND_VERSION" >> $GITHUB_OUTPUT
           echo "frontend_version=$FRONTEND_VERSION" >> $GITHUB_OUTPUT
-          
+
           # 获取上次部署的版本
           LAST_BACKEND=$(cat .last-backend-version 2>/dev/null || echo "none")
           LAST_FRONTEND=$(cat .last-frontend-version 2>/dev/null || echo "none")
-          
+
           echo "Current backend: $BACKEND_VERSION (last: $LAST_BACKEND)"
           echo "Current frontend: $FRONTEND_VERSION (last: $LAST_FRONTEND)"
-          
-          # 判断是否需要部署
+
+          # 使用动态令牌避免 if 条件/日志被意外处理（不要用纯 true/false）
+          DEPLOY_TOKEN="ACTION_START_${{ github.run_id }}"
+
+          # 后端：push / force / 版本变化 都触发
           if [[ "${{ github.event.inputs.force_deploy }}" == "true" ]] || \
              [[ "${{ github.event_name }}" == "push" ]] || \
-             [[ "$BACKEND_VERSION" != "$LAST_BACKEND" ]] || \
-             [[ "$FRONTEND_VERSION" != "$LAST_FRONTEND" ]]; then
-            echo "should_deploy=true" >> $GITHUB_OUTPUT
+             [[ "$BACKEND_VERSION" != "$LAST_BACKEND" ]]; then
+            echo "deploy_backend=$DEPLOY_TOKEN" >> $GITHUB_OUTPUT
+            echo "Backend deploy: YES"
           else
-            echo "should_deploy=false" >> $GITHUB_OUTPUT
-            echo "No updates found, skipping deploy"
+            echo "deploy_backend=ACTION_HOLD" >> $GITHUB_OUTPUT
+            echo "Backend deploy: NO"
           fi
 
-      - name: Check frontend deploy flag
+          # 前端：支持 workflow_dispatch 手动控制（auto/deploy/skip）
+          MODE="${{ github.event.inputs.deploy_frontend }}"
+          if [[ -z "$MODE" ]]; then MODE="auto"; fi
+          if [[ "$MODE" == "deploy" ]]; then
+            echo "deploy_frontend_needed=$DEPLOY_TOKEN" >> $GITHUB_OUTPUT
+            echo "Frontend deploy: YES (manual deploy)"
+          elif [[ "$MODE" == "skip" ]]; then
+            echo "deploy_frontend_needed=ACTION_HOLD" >> $GITHUB_OUTPUT
+            echo "Frontend deploy: NO (manual skip)"
+          elif [[ "$FRONTEND_VERSION" != "$LAST_FRONTEND" ]]; then
+            echo "deploy_frontend_needed=$DEPLOY_TOKEN" >> $GITHUB_OUTPUT
+            echo "Frontend deploy: YES (version changed)"
+          else
+            echo "deploy_frontend_needed=ACTION_HOLD" >> $GITHUB_OUTPUT
+            echo "Frontend deploy: NO"
+          fi
+
+      - name: Check If Frontend Deploy Is Enabled
         id: frontend-check
         env:
           DEPLOY_FRONTEND_SECRET: ${{ secrets.DEPLOY_SUB_STORE_FRONTEND }}
@@ -93,22 +128,22 @@ jobs:
 
   deploy-backend:
     needs: check-updates
-    if: needs.check-updates.outputs.should_deploy == 'true'
+    if: contains(needs.check-updates.outputs.deploy_backend, 'ACTION_START')
     runs-on: ubuntu-latest
     name: Deploy Backend
 
     steps:
-      - name: Check JWT_SECRET
+      - name: Validate JWT_SECRET
         run: |
           if [ -z "${{ secrets.JWT_SECRET }}" ]; then
-            echo "JWT_SECRET 未设置，停止部署"
+            echo "::error::JWT_SECRET 未设置！"
             exit 1
           fi
 
-      - name: Checkout workers adapter
+      - name: Checkout Workers Adapter Code
         uses: actions/checkout@v4
 
-      - name: Download Sub-Store source code
+      - name: Download Sub-Store Source Code
         run: |
           VERSION=${{ needs.check-updates.outputs.backend_version }}
           echo "Downloading Sub-Store source $VERSION..."
@@ -125,7 +160,9 @@ jobs:
         run: |
           cd build
           cp wrangler.toml.example wrangler.toml
-          sed -i 's|__JWT_SECRET__|${{ secrets.JWT_SECRET }}|g' wrangler.toml
+          JWT_SECRET='${{ secrets.JWT_SECRET }}'
+          ESCAPED_JWT_SECRET=$(printf '%s' "$JWT_SECRET" | sed -e 's/[\\/&]/\\\\&/g')
+          sed -i "s|__JWT_SECRET__|$ESCAPED_JWT_SECRET|g" wrangler.toml
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -160,7 +197,7 @@ jobs:
 
   deploy-frontend:
     needs: check-updates
-    if: needs.check-updates.outputs.should_deploy == 'true' && needs.check-updates.outputs.deploy_frontend == 'true'
+    if: contains(needs.check-updates.outputs.deploy_frontend_needed, 'ACTION_START') && needs.check-updates.outputs.deploy_frontend == 'true'
     runs-on: ubuntu-latest
     name: Deploy Frontend
 
@@ -182,14 +219,34 @@ jobs:
 
   update-version-cache:
     needs: [check-updates, deploy-backend, deploy-frontend]
-    if: always() && needs.check-updates.outputs.should_deploy == 'true' && (needs.deploy-backend.result == 'success' || needs.deploy-frontend.result == 'success')
+    if: always() && (needs.deploy-backend.result == 'success' || needs.deploy-frontend.result == 'success')
     runs-on: ubuntu-latest
 
     steps:
-      - name: Create version files
+      - name: Restore Last Version Cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .last-backend-version
+            .last-frontend-version
+          key: version-cache-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            version-cache-${{ github.ref_name }}-
+
+      - name: Update version files
         run: |
-          echo "${{ needs.check-updates.outputs.backend_version }}" > .last-backend-version
-          echo "${{ needs.check-updates.outputs.frontend_version }}" > .last-frontend-version
+          # 只在对应组件部署成功后，才推进它的“上次部署版本”
+          if [[ "${{ needs.deploy-backend.result }}" == "success" ]]; then
+            echo "${{ needs.check-updates.outputs.backend_version }}" > .last-backend-version
+          else
+            test -f .last-backend-version || echo "none" > .last-backend-version
+          fi
+
+          if [[ "${{ needs.deploy-frontend.result }}" == "success" ]]; then
+            echo "${{ needs.check-updates.outputs.frontend_version }}" > .last-frontend-version
+          else
+            test -f .last-frontend-version || echo "none" > .last-frontend-version
+          fi
 
       - name: Save version cache
         uses: actions/cache/save@v4
@@ -197,7 +254,7 @@ jobs:
           path: |
             .last-backend-version
             .last-frontend-version
-          key: version-cache-${{ github.run_id }}
+          key: version-cache-${{ github.ref_name }}-${{ github.run_id }}
 
   summary:
     needs: [check-updates, deploy-backend, deploy-frontend]
@@ -206,9 +263,11 @@ jobs:
     steps:
       - name: Deploy Summary
         run: |
-          echo "## 🚀 Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 部署摘要报告" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Component | Version | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|---------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Backend | ${{ needs.check-updates.outputs.backend_version }} | ${{ needs.deploy-backend.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Frontend | ${{ needs.check-updates.outputs.frontend_version }} | ${{ needs.deploy-frontend.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "**触发方式**: \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| 组件 | 版本 | 状态 |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 后端 | \`${{ needs.check-updates.outputs.backend_version }}\` | \`${{ needs.deploy-backend.result }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 前端 | \`${{ needs.check-updates.outputs.frontend_version }}\` | \`${{ needs.deploy-frontend.result }}\` |" >> $GITHUB_STEP_SUMMARY
