@@ -10,6 +10,8 @@ import {
     updateUserData, updatePassword, updateUsername, updatePath, updateNotes, generatePath
 } from '../user.js';
 import { getSystemSettings, updateSystemSettings } from '../settings.js';
+import { createUserClient } from '../../do/clients.js';
+import { getRequestId } from '../../utils/logger.js';
 
 /**
  * 解析 /api/dashboard/admin/user/:id/:action? 路由
@@ -111,6 +113,22 @@ export async function handleAdminRoutes(request, env, authPayload) {
         if (action === null && method === 'GET') {
             const user = await getUserById(ctx, userId);
             return jsonResponse(user);
+        }
+
+        // GET /api/dashboard/admin/user/:id/access-log?limit=50&beforeId=123
+        if (action === 'access-log' && method === 'GET') {
+            const user = await getUserById(ctx, userId);
+            if (!user) return errorResponse('Not Found', 404);
+            const requestId = getRequestId(request);
+            const client = createUserClient(env, userId);
+            const limit = Math.max(1, Math.min(200, parseInt(url.searchParams.get('limit') || '50', 10) || 50));
+            const beforeId = parseInt(url.searchParams.get('beforeId') || '0', 10) || 0;
+            const body = await client.getAccessLog(
+                { id: userId, username: user?.username, role: user?.role, path: user?.path },
+                { limit, beforeId },
+                requestId
+            );
+            return jsonResponse(body);
         }
 
         // POST /api/dashboard/admin/user/:id

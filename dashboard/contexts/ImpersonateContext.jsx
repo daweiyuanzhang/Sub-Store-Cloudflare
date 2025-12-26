@@ -14,7 +14,7 @@ export const ImpersonateProvider = ({ children }) => {
     // 管理员查看自己的用户面板
     const [viewingOwnPanel, setViewingOwnPanel] = useState(false);
     // 管理员模拟其他用户
-    const [impersonatedUser, setImpersonatedUser] = useState(null); // { username, path }
+    const [impersonatedUser, setImpersonatedUser] = useState(null); // { id, username, path }
 
     const isImpersonating = viewingOwnPanel || impersonatedUser !== null;
 
@@ -25,8 +25,8 @@ export const ImpersonateProvider = ({ children }) => {
     };
 
     // 模拟指定用户
-    const impersonate = (username, path) => {
-        setImpersonatedUser({ username, path });
+    const impersonate = (id, username, path) => {
+        setImpersonatedUser({ id, username, path });
         setViewingOwnPanel(false);
     };
 

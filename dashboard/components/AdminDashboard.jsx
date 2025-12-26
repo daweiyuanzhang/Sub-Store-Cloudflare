@@ -336,7 +336,7 @@ const AdminDashboard = () => {
                                 <div className="flex items-center gap-2 flex-wrap">
                                     {u.role !== 'admin' && (
                                         <button
-                                            onClick={() => impersonate(u.username, u.path)}
+                                            onClick={() => impersonate(u.id, u.username, u.path)}
                                             className="px-3 py-1.5 bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 rounded-lg text-xs transition-colors"
                                         >
                                             切换

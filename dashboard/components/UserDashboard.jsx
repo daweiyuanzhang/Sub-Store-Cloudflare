@@ -17,11 +17,21 @@ const UserDashboard = () => {
     const [showUsernameModal, setShowUsernameModal] = useState(false);
     const [copied, setCopied] = useState(false);
     const [refreshingCache, setRefreshingCache] = useState(false);
+    const [logsExpanded, setLogsExpanded] = useState(false);
+    const [logsLoading, setLogsLoading] = useState(false);
+    const [logs, setLogs] = useState([]);
+    const [logsCursor, setLogsCursor] = useState(null);
     const [settingsExpanded, setSettingsExpanded] = useState(false);
     const [currentUsername, setCurrentUsername] = useState('');
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [avatarUrl, setAvatarUrl] = useState('');
     const [passwordMinLength, setPasswordMinLength] = useState(8);
+
+    const formatTargetShort = (target) => {
+        if (!target) return '';
+        const s = String(target);
+        return s.length > 12 ? `${s.slice(0, 12)}…` : s;
+    };
 
     // 获取有效路径（模拟用户时使用模拟用户的路径）
     const effectivePath = impersonatedUser ? impersonatedUser.path : userPath;
@@ -58,6 +68,40 @@ const UserDashboard = () => {
     const handlePwdModalClose = (success) => {
         setShowPwdModal(false);
         if (success) toast.success('密码修改成功！');
+    };
+
+    const loadLogs = async ({ reset = false } = {}) => {
+        if (logsLoading) return;
+        setLogsLoading(true);
+        try {
+            const params = new URLSearchParams();
+            params.set('limit', '50');
+            if (!reset && logsCursor) params.set('beforeId', String(logsCursor));
+            const endpoint = (isImpersonating && impersonatedUser && isAdmin)
+                ? `/api/dashboard/admin/user/${impersonatedUser.id}/access-log?${params.toString()}`
+                : `/api/dashboard/user/access-log?${params.toString()}`;
+            const res = await fetch(endpoint, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                toast.error(payload?.error || '加载下载记录失败');
+                return;
+            }
+            const results = Array.isArray(payload?.results) ? payload.results : [];
+            const nextBeforeId = payload?.nextBeforeId ?? null;
+            if (reset) {
+                setLogs(results);
+            } else {
+                setLogs((prev) => prev.concat(results));
+            }
+            setLogsCursor(nextBeforeId);
+        } catch (e) {
+            toast.error('加载下载记录失败');
+        } finally {
+            setLogsLoading(false);
+        }
     };
 
     const handleRefreshCache = async () => {
@@ -204,17 +248,29 @@ const UserDashboard = () => {
                             </svg>
                             API 地址
                         </h2>
-                        <button
-                            onClick={handleRefreshCache}
-                            disabled={refreshingCache}
-                            className={`px-3 py-2 rounded-lg text-xs transition-colors border ${refreshingCache
-                                ? 'bg-slate-700/50 text-gray-400 border-slate-700 cursor-not-allowed'
-                                : 'bg-slate-800/60 hover:bg-slate-700/60 text-gray-200 border-slate-700/50'
-                                }`}
-                            title="清理 Sub-Store 的缓存"
-                        >
-                            {refreshingCache ? '刷新中...' : '快速刷新缓存'}
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => {
+                                    const next = !logsExpanded;
+                                    setLogsExpanded(next);
+                                    if (next && logs.length === 0) loadLogs({ reset: true });
+                                }}
+                                className="px-3 py-2 rounded-lg text-xs transition-colors border bg-slate-800/60 hover:bg-slate-700/60 text-gray-200 border-slate-700/50"
+                            >
+                                下载记录
+                            </button>
+                            <button
+                                onClick={handleRefreshCache}
+                                disabled={refreshingCache}
+                                className={`px-3 py-2 rounded-lg text-xs transition-colors border ${refreshingCache
+                                    ? 'bg-slate-700/50 text-gray-400 border-slate-700 cursor-not-allowed'
+                                    : 'bg-slate-800/60 hover:bg-slate-700/60 text-gray-200 border-slate-700/50'
+                                    }`}
+                                title="调用 Sub-Store /api/utils/refresh 刷新缓存"
+                            >
+                                {refreshingCache ? '刷新中...' : '快速刷新缓存'}
+                            </button>
+                        </div>
                     </div>
 
                     <div className="relative">
@@ -230,8 +286,78 @@ const UserDashboard = () => {
                     </div>
 
                     <p className="text-gray-500 text-xs mt-3">
-                        💡 此地址用于配置 Sub-Store 前端或代理客户端
+                        此地址用于配置 Sub-Store 前端或代理客户端
                     </p>
+
+                    {logsExpanded && (
+                        <div className="mt-4 border-t border-slate-700/60 pt-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="text-sm text-gray-300">最近下载记录</div>
+                                <button
+                                    onClick={() => loadLogs({ reset: true })}
+                                    disabled={logsLoading}
+                                    className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${logsLoading
+                                        ? 'bg-slate-700/50 text-gray-400 border-slate-700 cursor-not-allowed'
+                                        : 'bg-slate-800/60 hover:bg-slate-700/60 text-gray-200 border-slate-700/50'
+                                        }`}
+                                >
+                                    刷新
+                                </button>
+                            </div>
+
+                            <div className="space-y-2">
+                                {logs.length === 0 && !logsLoading && (
+                                    <div className="text-gray-500 text-xs">暂无记录</div>
+                                )}
+                                {logs.map((row) => (
+                                    <div key={row.id} className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-3">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="text-sm text-white break-all">
+                                                <span className="text-cyan-300">{row.kind === 'col' ? '组合' : '订阅'}</span>
+                                                <span className="text-gray-400 mx-2">·</span>
+                                                <span className="font-mono">{row.name}</span>
+                                                {row.target ? (
+                                                    <span
+                                                        className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-slate-900/40 text-gray-400 border border-slate-800/60"
+                                                        title={row.target}
+                                                    >
+                                                        {formatTargetShort(row.target)}
+                                                    </span>
+                                                ) : null}
+                                                {row.status ? (
+                                                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-slate-900/30 text-gray-500 border border-slate-800/60">
+                                                        {row.status}
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                            <div className="text-xs text-gray-400 whitespace-nowrap">
+                                                {row.ts ? new Date(row.ts).toLocaleString() : ''}
+                                            </div>
+                                        </div>
+                                        {(row.ua || row.ip) && (
+                                            <div className="mt-2 text-xs text-gray-500 break-all space-y-1">
+                                                {row.ip ? <div>IP: {row.ip}</div> : null}
+                                                {row.ua ? <div>UA: {row.ua}</div> : null}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="mt-3">
+                                <button
+                                    onClick={() => loadLogs({ reset: false })}
+                                    disabled={logsLoading || !logsCursor}
+                                    className={`w-full px-3 py-2 rounded-xl text-xs border transition-colors ${logsLoading || !logsCursor
+                                        ? 'bg-slate-700/50 text-gray-400 border-slate-700 cursor-not-allowed'
+                                        : 'bg-slate-800/60 hover:bg-slate-700/60 text-gray-200 border-slate-700/50'
+                                        }`}
+                                >
+                                    {logsLoading ? '加载中...' : (logsCursor ? '加载更多' : '没有更多了')}
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* 打开前端按钮 */}

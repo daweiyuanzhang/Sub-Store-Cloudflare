@@ -202,6 +202,17 @@ export function createUserClient(env, userId) {
             return resp.ok;
         },
 
+        async getAccessLog(user, { limit = 50, beforeId = 0 } = {}, requestId) {
+            debug('[UserClient] getAccessLog:', user?.id, { limit, beforeId });
+            const headers = new Headers();
+            setUserHeaders(headers, user);
+            const url = buildUrl(USER_ORIGIN, USER_ENDPOINTS.ACCESS_LOG, {
+                limit: limit || 50,
+                beforeId: beforeId || undefined,
+            });
+            return (await fetchJsonOrNull(stub, url, { method: 'GET', headers }, requestId)) || { results: [], nextBeforeId: null };
+        },
+
         /**
          * 把外部请求转发给 UserDO 的 Sub-Store 入口
          * - 自动去掉 url 的第一个 path segment（用户前缀）

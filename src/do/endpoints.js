@@ -17,5 +17,5 @@ export const INDEX_ENDPOINTS = {
 export const USER_ENDPOINTS = {
     USER_DATA: '/_internal/user-data',
     CRON: '/_internal/cron',
+    ACCESS_LOG: '/_internal/access-log',
 };
-
