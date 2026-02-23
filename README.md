@@ -14,6 +14,10 @@
 - ✅ GitHub Actions 自动部署（前后端）
 - ✅ 每 3 天自动检查更新并部署
 
+### 为什么从 D1 换到 Durable Objects
+
+Workers 会在多实例下并发处理请求。为了兼容 Sub-Store 的原有存储模型（单用户数据聚合在一条记录中），同一时刻多个请求对同一用户执行“读-改-写”时，若没有额外的版本控制/锁机制，在 D1 中容易出现后写覆盖先写（丢更新）。Durable Objects 按 Object ID 提供单活实例与串行处理能力，更适合这种高冲突写入场景，因此能更稳地保证单用户数据一致性。
+
 ---
 
 ## ⚠️ 功能限制
@@ -135,11 +139,17 @@
 
 ### 快速开始
 
-需要先下载 Sub-Store 源码到 `sub-store` 目录并且安装依赖 `cd sub-store/backend && pnpm install`
+需要先下载 Sub-Store 源码到 `sub-store` 目录并且安装依赖
 
 ```bash
-# 安装依赖
+# 安装项目依赖
 bun install
+
+# 下载 Sub-Store 源码
+bun run fetch:substore
+
+# 安装 Sub-Store 依赖
+bun run install:backend
 
 # 启动开发服务器
 bun run dev
@@ -161,7 +171,10 @@ bun run preview
 | `bun run dev` | 本地开发服务器 |
 | `bun run deploy:local` | 从本地部署到 Cloudflare |
 | `bun run deploy:action` | 从 GitHub Actions 部署到 Cloudflare |
+| `bun run install:backend` | 安装 Sub-Store 后端依赖 |
+| `bun run fetch:substore` | 下载 Sub-Store 源码 |
 | `bun run tail` | 实时查看 Cloudflare Worker 生产环境的日志 |
+| `bun run prepare:quickjs-wasm` | 准备 QuickJS WASM | 
 
 ---
 
@@ -175,4 +188,4 @@ Workers HTTP 请求超时为 10-55 秒。如果目标服务器响应慢，可能
 
 ## License
 
-AGPL-3.0
+[AGPL-3.0](LICENSE)
