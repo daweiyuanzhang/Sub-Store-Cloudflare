@@ -1,23 +1,23 @@
 {
-  "checkedAt": "2026-07-06T01:13:52.486Z",
+  "checkedAt": "2026-07-07T01:14:57.037Z",
   "timezone": "Asia/Singapore",
-  "cloudflareVersion": "26.28.1",
-  "packageVersion": "26.28.1",
-  "previousCloudflareVersion": "26.27.6",
+  "cloudflareVersion": "26.28.2",
+  "packageVersion": "26.28.2",
+  "previousCloudflareVersion": "26.28.1",
   "versioning": {
     "scheme": "YY.ISO_WEEK.UPDATE",
     "update": "increments only when monitored upstream releases change in the same ISO week"
   },
   "recentWindow": {
-    "since": "2026-06-29T01:13:52.486Z",
-    "until": "2026-07-06T01:13:52.486Z"
+    "since": "2026-06-30T01:14:57.037Z",
+    "until": "2026-07-07T01:14:57.037Z"
   },
   "backend": {
     "repo": "sub-store-org/Sub-Store",
-    "tagName": "2.35.0",
-    "name": "2.35.0",
-    "htmlUrl": "https://github.com/sub-store-org/Sub-Store/releases/tag/2.35.0",
-    "publishedAt": "2026-07-05T11:50:54Z"
+    "tagName": "2.36.0",
+    "name": "2.36.0",
+    "htmlUrl": "https://github.com/sub-store-org/Sub-Store/releases/tag/2.36.0",
+    "publishedAt": "2026-07-06T21:16:38Z"
   },
   "frontend": {
     "repo": "sub-store-org/Sub-Store-Front-End",
@@ -28,6 +28,13 @@
   },
   "recent": {
     "backend": [
+      {
+        "repo": "sub-store-org/Sub-Store",
+        "tagName": "2.36.0",
+        "name": "2.36.0",
+        "htmlUrl": "https://github.com/sub-store-org/Sub-Store/releases/tag/2.36.0",
+        "publishedAt": "2026-07-06T21:16:38Z"
+      },
       {
         "repo": "sub-store-org/Sub-Store",
         "tagName": "2.35.0",
@@ -124,7 +131,7 @@
     ]
   },
   "previous": {
-    "backend": "2.34.0",
+    "backend": "2.35.0",
     "frontend": "2.28.5"
   }
 }
